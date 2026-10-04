@@ -217,7 +217,7 @@ def main() -> None:
                 "gex": gex,
             }
             write_atomic(payload, OUTPUT_FILE)
-            ts = datetime.now().strftime("%H:%M:%S")
+            ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
             print(f"[{ts}] GEX snapshot written — {len(gex)} strikes, spot ≈ {spot:,.0f}")
 
         except requests.exceptions.HTTPError as exc:

@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import pathlib
 
-import pytest
-
 from execution.live_engine import PaperTrader
 
 _ENTRY: float = 50_000.0

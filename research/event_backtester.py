@@ -36,7 +36,6 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 from quant_models.gex_risk_manager import GexRiskManager, load_gex_map_from_file
 from quant_models.smc_detectors import MicrostructureDetector

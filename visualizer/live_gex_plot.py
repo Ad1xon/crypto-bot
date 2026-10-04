@@ -25,9 +25,9 @@ import json
 import pathlib
 from typing import Final
 
-import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from matplotlib import animation
 
 DATA_FILE: Final[pathlib.Path] = pathlib.Path("data") / "live_gex.json"
 REFRESH_INTERVAL_MS: Final[int] = 5_000
@@ -86,7 +86,7 @@ def _filter_strikes(
     When spot is unavailable (0.0) all strikes are returned unfiltered.
     Results are sorted ascending by strike for consistent chart ordering.
     """
-    all_strikes = sorted(float(k) for k in gex_map.keys())
+    all_strikes = sorted(float(k) for k in gex_map)
 
     if spot > 0.0:
         low = spot * (1.0 - PRICE_BAND_PCT)
@@ -193,9 +193,9 @@ def animate(frame: int, ax: plt.Axes, fig: plt.Figure) -> None:
             color=COLOR_NEGATIVE,
         )
         return
-    except OSError as exc:
+    except OSError:
         ax.set_title(
-            f"File locked by Windows — retrying...",
+            "File locked by Windows — retrying...",
             fontsize=9,
             color=COLOR_NEGATIVE,
         )

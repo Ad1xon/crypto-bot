@@ -41,7 +41,7 @@ class TestSignalTimestamp:
     def test_detector_stamps_signal_ts_on_absorption(self) -> None:
         n: int = 200
         prices = [100.0] * 100 + [100.0] * 50 + [100.05] * 50
-        cvd = [0.0] * 100 + list(range(-50, 0)) + list(range(0, 50))
+        cvd = [0.0] * 100 + list(range(-50, 0)) + list(range(50))
         ofi = [0.1] * 150 + [-0.1] * 50
         df = pd.DataFrame(
             {
