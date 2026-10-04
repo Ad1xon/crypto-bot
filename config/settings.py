@@ -28,10 +28,10 @@ def _require_env(key: str) -> str:
 
 @dataclass(frozen=True)
 class BrokerConfig:
-    """Immutable Bybit broker credentials and sandbox toggle."""
+    """Immutable broker credentials (now mapped for Hyperliquid) and sandbox toggle."""
 
-    api_key: str = field(default_factory=lambda: _require_env("BYBIT_API_KEY"))
-    api_secret: str = field(default_factory=lambda: _require_env("BYBIT_API_SECRET"))
+    api_key: str = field(default_factory=lambda: _require_env("HYPERLIQUID_WALLET_ADDRESS"))
+    api_secret: str = field(default_factory=lambda: _require_env("HYPERLIQUID_PRIVATE_KEY"))
     testnet: bool = field(
         default_factory=lambda: os.getenv("USE_TESTNET", "True").strip().lower()
         in {"true", "1", "yes"}
@@ -73,18 +73,18 @@ class BinanceConfig:
 
 
 @dataclass(frozen=True)
-class BybitWSConfig:
-    """Immutable Bybit V5 Linear Perpetuals WebSocket connection parameters."""
+class HyperliquidWSConfig:
+    """Immutable Hyperliquid WebSocket connection parameters."""
 
     ws_url: str = field(
         default_factory=lambda: (
-            "wss://stream-testnet.bybit.com/v5/public/linear"
+            "wss://api.hyperliquid-testnet.xyz/ws"
             if os.getenv("USE_TESTNET", "True").strip().lower() in {"true", "1", "yes"}
-            else "wss://stream.bybit.com/v5/public/linear"
+            else "wss://api.hyperliquid.xyz/ws"
         )
     )
     symbol: str = field(
-        default_factory=lambda: os.getenv("TRADING_SYMBOL", "BTCUSDT").upper()
+        default_factory=lambda: os.getenv("TRADING_SYMBOL", "BTC").upper()
     )
 
 
@@ -127,7 +127,7 @@ class AppConfig:
     """Top-level application configuration composed of sub-configs."""
 
     binance: BinanceConfig = field(default_factory=BinanceConfig)
-    bybit_ws: BybitWSConfig = field(default_factory=BybitWSConfig)
+    hyperliquid_ws: HyperliquidWSConfig = field(default_factory=HyperliquidWSConfig)
     reconnect: ReconnectPolicy = field(default_factory=ReconnectPolicy)
     tick_logger: TickLoggerConfig = field(default_factory=TickLoggerConfig)
     deribit: DeribitConfig = field(default_factory=DeribitConfig)

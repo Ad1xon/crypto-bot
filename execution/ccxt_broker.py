@@ -49,14 +49,20 @@ class CCXTBroker(ExecutionEngine):
         state_file: pathlib.Path = _DEFAULT_STATE_FILE,
     ) -> None:
         exchange_class: type = getattr(ccxt, exchange_id)
-        self._exchange: ccxt.Exchange = exchange_class(
-            {
-                "apiKey": api_key,
-                "secret": api_secret,
-                "enableRateLimit": True,
-                "options": {"defaultType": "swap"},
-            }
-        )
+        
+        exchange_config = {
+            "enableRateLimit": True,
+            "options": {"defaultType": "swap"},
+        }
+        
+        if exchange_id == "hyperliquid":
+            exchange_config["walletAddress"] = api_key
+            exchange_config["privateKey"] = api_secret
+        else:
+            exchange_config["apiKey"] = api_key
+            exchange_config["secret"] = api_secret
+
+        self._exchange: ccxt.Exchange = exchange_class(exchange_config)
         if testnet:
             self._exchange.set_sandbox_mode(True)
 
@@ -222,9 +228,7 @@ class CCXTBroker(ExecutionEngine):
                 self._current_local_sl_price = max(
                     self._current_local_sl_price, true_be_price, dynamic_sl
                 )
-            if current_price >= self._entry_price + self._tp_usdt_dist:
-                exit_side = "sell"
-            elif current_price <= self._current_local_sl_price:
+            if current_price >= self._entry_price + self._tp_usdt_dist or current_price <= self._current_local_sl_price:
                 exit_side = "sell"
 
         elif self._position == "SHORT":
@@ -234,9 +238,7 @@ class CCXTBroker(ExecutionEngine):
                 self._current_local_sl_price = min(
                     self._current_local_sl_price, true_be_price, dynamic_sl
                 )
-            if current_price <= self._entry_price - self._tp_usdt_dist:
-                exit_side = "buy"
-            elif current_price >= self._current_local_sl_price:
+            if current_price <= self._entry_price - self._tp_usdt_dist or current_price >= self._current_local_sl_price:
                 exit_side = "buy"
 
         if exit_side is not None:

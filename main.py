@@ -12,7 +12,7 @@ import signal
 import sys
 
 from config.settings import SETTINGS
-from data_ingestion.bybit_streamer import BybitStreamer
+from data_ingestion.hyperliquid_streamer import HyperliquidStreamer
 from execution.ccxt_broker import CCXTBroker
 from execution.interfaces import ExecutionEngine
 from execution.live_engine import PaperTrader
@@ -41,14 +41,14 @@ async def _build_execution_engine() -> ExecutionEngine:
     if SETTINGS.live_mode:
         broker_cfg = SETTINGS.build_broker()
         engine = CCXTBroker(
-            exchange_id="bybit",
+            exchange_id="hyperliquid",
             api_key=broker_cfg.api_key,
             api_secret=broker_cfg.api_secret,
             testnet=broker_cfg.testnet,
         )
         await engine.initialize()
         _LOG.critical(
-            "=== LIVE MODE ACTIVE — real orders will be submitted to Bybit (testnet=%s) ===",
+            "=== LIVE MODE ACTIVE — real orders will be submitted to Hyperliquid (testnet=%s) ===",
             broker_cfg.testnet,
         )
         return engine
@@ -71,8 +71,8 @@ def _register_sigterm(loop: asyncio.AbstractEventLoop, main_task: asyncio.Task) 
 
 async def _run() -> None:
     engine: ExecutionEngine = await _build_execution_engine()
-    dashboard = CLIDashboard(symbol=SETTINGS.bybit_ws.symbol)
-    streamer = BybitStreamer(
+    dashboard = CLIDashboard(symbol=SETTINGS.hyperliquid_ws.symbol)
+    streamer = HyperliquidStreamer(
         config=SETTINGS,
         dashboard=dashboard,
         execution_engine=engine,
@@ -90,7 +90,7 @@ def main() -> None:
     _configure_logging(level=SETTINGS.log_level, log_file=SETTINGS.log_file)
     _LOG.info(
         "V3-Crypto-Quant starting — symbol=%s live_mode=%s log_file=%s",
-        SETTINGS.bybit_ws.symbol,
+        SETTINGS.hyperliquid_ws.symbol,
         SETTINGS.live_mode,
         SETTINGS.log_file,
     )
