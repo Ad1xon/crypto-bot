@@ -1,14 +1,12 @@
 import pandas as pd
-import pytest
 
+from quant_models.gex_risk_manager import GexRiskManager
+from quant_models.super_confluence import ConfluenceVerdict, SuperConfluenceFilter
 from research.event_backtester import (
     BacktestEngine,
     TradeConfig,
-    TradeRecord,
     compute_performance_report,
 )
-from quant_models.gex_risk_manager import GexRiskManager
-from quant_models.super_confluence import SuperConfluenceFilter, ConfluenceVerdict
 
 
 class DummyTick:
@@ -46,14 +44,14 @@ def test_backtest_engine_basic_long_tp():
     signal_map = {1000: "BULLISH_ABSORPTION"}
 
     engine = BacktestEngine(config, signal_map, gex, confluence)
-    
+
     # Tick 1: Trigger signal
     engine.process_tick(DummyTick(1000, 50000.0, 50000.0))
     assert engine.has_open_position
-    
+
     # Tick 2: Hit TP (entry + TP distance)
     engine.process_tick(DummyTick(2000, 50100.0, 50000.0))
-    
+
     assert not engine.has_open_position
     records = engine.trade_records
     assert len(records) == 1
