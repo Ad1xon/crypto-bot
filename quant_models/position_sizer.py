@@ -1,5 +1,3 @@
-
-
 class PositionSizer:
     """Dynamic position sizing using a Kelly Criterion variation combined with GEX risk."""
 
