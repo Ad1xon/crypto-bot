@@ -99,10 +99,7 @@ class SuperConfluenceFilter:
         gex_map: dict[float, float],
     ) -> ConfluenceVerdict:
         """Gate an absorption signal on VWAP alignment and nearest-strike GEX sign."""
-        vwap_ok: bool = (
-            vwap is not None
-            and self.vwap_aligned(signal_type, price, vwap)
-        )
+        vwap_ok: bool = vwap is not None and self.vwap_aligned(signal_type, price, vwap)
         ctx: tuple[float, float] | None = self.nearest_strike_gex(gex_map, price)
         if ctx is None:
             return ConfluenceVerdict(

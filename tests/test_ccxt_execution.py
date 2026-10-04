@@ -80,12 +80,8 @@ class TestPrecisionCallOrdering:
         assert "amount_to_precision" in call_log
         assert "price_to_precision" in call_log
         assert "create_market_buy_order" in call_log
-        assert call_log.index("amount_to_precision") < call_log.index(
-            "create_market_buy_order"
-        )
-        assert call_log.index("price_to_precision") < call_log.index(
-            "create_market_buy_order"
-        )
+        assert call_log.index("amount_to_precision") < call_log.index("create_market_buy_order")
+        assert call_log.index("price_to_precision") < call_log.index("create_market_buy_order")
 
     async def test_precision_methods_invoked_before_sell_order(
         self, clean_broker: CCXTBroker, mock_exchange: MagicMock
@@ -115,12 +111,8 @@ class TestPrecisionCallOrdering:
             current_time=_CURRENT_TIME,
         )
 
-        assert call_log.index("amount_to_precision") < call_log.index(
-            "create_market_sell_order"
-        )
-        assert call_log.index("price_to_precision") < call_log.index(
-            "create_market_sell_order"
-        )
+        assert call_log.index("amount_to_precision") < call_log.index("create_market_sell_order")
+        assert call_log.index("price_to_precision") < call_log.index("create_market_sell_order")
 
     async def test_amount_to_precision_receives_computed_size(
         self, clean_broker: CCXTBroker, mock_exchange: MagicMock

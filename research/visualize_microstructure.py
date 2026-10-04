@@ -39,9 +39,7 @@ def load_parquet_glob(data_dir: pathlib.Path, prefix: str) -> pd.DataFrame:
     """
     files: list[pathlib.Path] = sorted(data_dir.glob(f"{prefix}_*.parquet"))
     if not files:
-        raise FileNotFoundError(
-            f"No Parquet files found in '{data_dir}' with prefix '{prefix}'"
-        )
+        raise FileNotFoundError(f"No Parquet files found in '{data_dir}' with prefix '{prefix}'")
     return (
         pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
         .sort_values("timestamp_ms", kind="stable")
@@ -90,9 +88,8 @@ def merge_frames(
     useful for downstream ML feature engineering and backtesting.
     """
     left: pd.DataFrame = bbo_df.copy()
-    right: pd.DataFrame = (
-        trades_df[["timestamp_ms", "price", "cvd"]]
-        .rename(columns={"price": "last_trade_price", "cvd": "last_cvd"})
+    right: pd.DataFrame = trades_df[["timestamp_ms", "price", "cvd"]].rename(
+        columns={"price": "last_trade_price", "cvd": "last_cvd"}
     )
     return pd.merge_asof(
         left,
@@ -104,10 +101,7 @@ def merge_frames(
 
 def _ofi_colors(series: pd.Series) -> list[str]:
     """Map non-negative OFI values to green and negative values to red."""
-    return [
-        "rgba(0,210,90,0.75)" if v >= 0 else "rgba(220,55,55,0.75)"
-        for v in series
-    ]
+    return ["rgba(0,210,90,0.75)" if v >= 0 else "rgba(220,55,55,0.75)" for v in series]
 
 
 def _add_price_depth_traces(
@@ -132,7 +126,8 @@ def _add_price_depth_traces(
             legendgroup="bbo",
             hovertemplate="Bid: %{y:,.2f}<extra></extra>",
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
     fig.add_trace(
         go.Scatter(
@@ -144,7 +139,8 @@ def _add_price_depth_traces(
             legendgroup="bbo",
             hovertemplate="Ask: %{y:,.2f}<extra></extra>",
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
     buys: pd.DataFrame = trades_df[~trades_df["is_buyer_maker"]]
@@ -160,7 +156,8 @@ def _add_price_depth_traces(
             hovertemplate="Buy: %{y:,.2f}  qty=%{customdata:.5f}<extra></extra>",
             customdata=buys["qty"].values,
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
     fig.add_trace(
         go.Scatter(
@@ -172,7 +169,8 @@ def _add_price_depth_traces(
             hovertemplate="Sell: %{y:,.2f}  qty=%{customdata:.5f}<extra></extra>",
             customdata=sells["qty"].values,
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
 
@@ -197,14 +195,16 @@ def _add_cvd_trace(fig: go.Figure, trades_df: pd.DataFrame) -> None:
             name="CVD",
             hovertemplate="CVD: %{y:,.4f}<extra></extra>",
         ),
-        row=2, col=1,
+        row=2,
+        col=1,
     )
     fig.add_hline(
         y=0,
         line_dash="solid",
         line_color="rgba(255,255,255,0.15)",
         line_width=1,
-        row=2, col=1,
+        row=2,
+        col=1,
     )
 
 
@@ -224,7 +224,8 @@ def _add_ofi_trace(fig: go.Figure, bbo_df: pd.DataFrame) -> None:
             name="OFI",
             hovertemplate="OFI: %{y:,.6f}<extra></extra>",
         ),
-        row=3, col=1,
+        row=3,
+        col=1,
     )
 
 
@@ -262,10 +263,7 @@ def build_figure(
     fig.update_layout(
         template=_TEMPLATE,
         title=dict(
-            text=(
-                f"V3-Crypto-Quant  |  Microstructure Dashboard  |  "
-                f"{symbol}  |  {time_start} - {time_end}"
-            ),
+            text=(f"V3-Crypto-Quant  |  Microstructure Dashboard  |  {symbol}  |  {time_start} - {time_end}"),
             font=dict(size=16, color="white"),
             x=0.01,
         ),

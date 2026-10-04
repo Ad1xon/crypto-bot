@@ -50,14 +50,12 @@ class HyperliquidStreamer(DataStreamer):
             execution_engine=execution_engine,
         )
         # Hyperliquid subscriptions
-        self._subscribe_payload = json.dumps({
-            "method": "subscribe",
-            "subscription": {"type": "l2Book", "coin": self._symbol}
-        })
-        self._subscribe_trades = json.dumps({
-            "method": "subscribe",
-            "subscription": {"type": "trades", "coin": self._symbol}
-        })
+        self._subscribe_payload = json.dumps(
+            {"method": "subscribe", "subscription": {"type": "l2Book", "coin": self._symbol}}
+        )
+        self._subscribe_trades = json.dumps(
+            {"method": "subscribe", "subscription": {"type": "trades", "coin": self._symbol}}
+        )
 
     async def start(self) -> None:
         """Begin streaming."""
@@ -99,7 +97,7 @@ class HyperliquidStreamer(DataStreamer):
 
             if not self._running:
                 break
-            
+
             await asyncio.sleep(delay)
             delay = min(delay * self._reconnect.backoff_factor, self._reconnect.max_delay_s)
 
@@ -125,22 +123,28 @@ class HyperliquidStreamer(DataStreamer):
         levels = data.get("levels", [[]])
         if not levels or not levels[0]:
             return
-        
+
         # Hyperliquid sends full snapshot for BBO usually, or full book on updates
         best_bid = (float(levels[0][0].get("px", 0)), float(levels[0][0].get("sz", 0))) if levels[0] else (0.0, 0.0)
-        best_ask = (float(levels[1][0].get("px", 0)), float(levels[1][0].get("sz", 0))) if len(levels) > 1 and levels[1] else (0.0, 0.0)
+        best_ask = (
+            (float(levels[1][0].get("px", 0)), float(levels[1][0].get("sz", 0)))
+            if len(levels) > 1 and levels[1]
+            else (0.0, 0.0)
+        )
         ofi = best_bid[1] - best_ask[1]
 
-        self._tick_logger.put_bbo({
-            "timestamp_ms": data.get("time", 0),
-            "best_bid_price": best_bid[0],
-            "best_bid_qty": best_bid[1],
-            "best_ask_price": best_ask[0],
-            "best_ask_qty": best_ask[1],
-            "spread": best_ask[0] - best_bid[0],
-            "ofi": ofi,
-        })
-        
+        self._tick_logger.put_bbo(
+            {
+                "timestamp_ms": data.get("time", 0),
+                "best_bid_price": best_bid[0],
+                "best_bid_qty": best_bid[1],
+                "best_ask_price": best_ask[0],
+                "best_ask_qty": best_ask[1],
+                "spread": best_ask[0] - best_bid[0],
+                "ofi": ofi,
+            }
+        )
+
         if self._dashboard is not None:
             self._dashboard.update([best_bid], [best_ask], self._cvd)
 
@@ -156,15 +160,17 @@ class HyperliquidStreamer(DataStreamer):
             sz = float(trade.get("sz", 0))
             px = float(trade.get("px", 0))
             side = trade.get("dir", "Buy")
-            
+
             delta = sz if side == "Buy" else -sz
             self._cvd += delta
             self._live_engine.update_trade(px, sz)
 
-            self._tick_logger.put_trade({
-                "timestamp_ms": trade.get("time", 0),
-                "price": px,
-                "qty": sz,
-                "side": side,
-                "is_buyer_maker": side == "Sell",
-            })
+            self._tick_logger.put_trade(
+                {
+                    "timestamp_ms": trade.get("time", 0),
+                    "price": px,
+                    "qty": sz,
+                    "side": side,
+                    "is_buyer_maker": side == "Sell",
+                }
+            )

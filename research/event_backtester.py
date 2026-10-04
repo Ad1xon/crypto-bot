@@ -132,10 +132,7 @@ class BacktestEngine:
         self._config: TradeConfig = config
         self._signal_map: dict[int, str] = signal_map
         self._gex: GexRiskManager = gex_manager
-        self._confluence: SuperConfluenceFilter = (
-            confluence if confluence is not None
-            else SuperConfluenceFilter()
-        )
+        self._confluence: SuperConfluenceFilter = confluence if confluence is not None else SuperConfluenceFilter()
 
         self._balance: float = config.initial_balance
         self._position: str | None = None
@@ -169,9 +166,7 @@ class BacktestEngine:
             and row.timestamp_ms >= self._cooldown_until_ms
         ):
             signal: str = self._signal_map[row.timestamp_ms]
-            vwap: float | None = (
-                None if pd.isna(row.vwap) else float(row.vwap)
-            )
+            vwap: float | None = None if pd.isna(row.vwap) else float(row.vwap)
             verdict = self._confluence.evaluate(
                 signal_type=signal,
                 price=float(row.price),
@@ -181,9 +176,7 @@ class BacktestEngine:
             if verdict.allowed:
                 self._open_position(signal, row.price, row.dt)
 
-    def _check_exit(
-        self, price: float, dt: pd.Timestamp
-    ) -> tuple[str, float] | None:
+    def _check_exit(self, price: float, dt: pd.Timestamp) -> tuple[str, float] | None:
         """Return ``(outcome, fill_price)`` if any exit condition is met.
 
         Evaluation order: time-based exit → trailing stop update → TP → SL.
@@ -199,27 +192,21 @@ class BacktestEngine:
 
         if self._position == "LONG":
             if price >= self._entry_price + activation:
-                self._current_sl_price = max(
-                    self._current_sl_price, self._entry_price
-                )
+                self._current_sl_price = max(self._current_sl_price, self._entry_price)
             if price >= self._entry_price + tp_usdt:
                 return ("TP", self._entry_price + tp_usdt)
             if price <= self._current_sl_price:
                 return ("SL", self._current_sl_price)
         elif self._position == "SHORT":
             if price <= self._entry_price - activation:
-                self._current_sl_price = min(
-                    self._current_sl_price, self._entry_price
-                )
+                self._current_sl_price = min(self._current_sl_price, self._entry_price)
             if price <= self._entry_price - tp_usdt:
                 return ("TP", self._entry_price - tp_usdt)
             if price >= self._current_sl_price:
                 return ("SL", self._current_sl_price)
         return None
 
-    def _open_position(
-        self, signal: str, price: float, dt: pd.Timestamp
-    ) -> None:
+    def _open_position(self, signal: str, price: float, dt: pd.Timestamp) -> None:
         """Record entry metadata and deduct the entry taker fee from balance."""
         self._position = "LONG" if signal == "BULLISH_ABSORPTION" else "SHORT"
         self._entry_price = price
@@ -294,9 +281,7 @@ def _load_parquet_glob(data_dir: pathlib.Path, prefix: str) -> pd.DataFrame:
     """Concatenate all Parquet files matching ``prefix_*.parquet``."""
     files: list[pathlib.Path] = sorted(data_dir.glob(f"{prefix}_*.parquet"))
     if not files:
-        raise FileNotFoundError(
-            f"No Parquet files with prefix '{prefix}' in '{data_dir}'"
-        )
+        raise FileNotFoundError(f"No Parquet files with prefix '{prefix}' in '{data_dir}'")
     return (
         pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
         .sort_values("timestamp_ms", kind="stable")
@@ -352,27 +337,30 @@ def compute_performance_report(
         return PerformanceReport(
             initial_balance=config.initial_balance,
             final_balance=config.initial_balance,
-            total_trades=0, winning_trades=0, losing_trades=0,
-            win_rate_pct=0.0, gross_profit=0.0, gross_loss=0.0,
-            profit_factor=0.0, net_pnl=0.0, return_pct=0.0,
-            max_drawdown_usdt=0.0, max_drawdown_pct=0.0,
-            avg_win_usdt=0.0, avg_loss_usdt=0.0, avg_duration_s=0.0,
+            total_trades=0,
+            winning_trades=0,
+            losing_trades=0,
+            win_rate_pct=0.0,
+            gross_profit=0.0,
+            gross_loss=0.0,
+            profit_factor=0.0,
+            net_pnl=0.0,
+            return_pct=0.0,
+            max_drawdown_usdt=0.0,
+            max_drawdown_pct=0.0,
+            avg_win_usdt=0.0,
+            avg_loss_usdt=0.0,
+            avg_duration_s=0.0,
         )
 
-    wins: list[TradeRecord] = [
-        r for r in records
-        if r.outcome == "TP" or (r.outcome == "TIME_EXIT" and r.net_pnl > 0)
-    ]
+    wins: list[TradeRecord] = [r for r in records if r.outcome == "TP" or (r.outcome == "TIME_EXIT" and r.net_pnl > 0)]
     losses: list[TradeRecord] = [
-        r for r in records
-        if r.outcome == "SL" or (r.outcome == "TIME_EXIT" and r.net_pnl <= 0)
+        r for r in records if r.outcome == "SL" or (r.outcome == "TIME_EXIT" and r.net_pnl <= 0)
     ]
 
     gross_profit: float = sum(r.net_pnl for r in wins)
     gross_loss: float = abs(sum(r.net_pnl for r in losses))
-    profit_factor: float = (
-        gross_profit / gross_loss if gross_loss > 0 else float("inf")
-    )
+    profit_factor: float = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
     equity: pd.Series = pd.Series(equity_curve, dtype=float)
     rolling_peak: pd.Series = equity.cummax()
@@ -406,41 +394,34 @@ def _render_trade_log(records: list[TradeRecord], config: TradeConfig) -> None:
     """Print a Rich Table with one row per completed trade."""
     table = Table(
         title=f"Trade Log  ({len(records)} trades  |  "
-              f"position={config.position_size_usdt:.0f} USDT  "
-              f"TP={config.take_profit_usdt:.0f}  SL={config.stop_loss_usdt:.0f})",
+        f"position={config.position_size_usdt:.0f} USDT  "
+        f"TP={config.take_profit_usdt:.0f}  SL={config.stop_loss_usdt:.0f})",
         box=box.ROUNDED,
         header_style="bold white",
         border_style="bright_blue",
         show_lines=False,
     )
-    table.add_column("#",           justify="right",  style="dim",        min_width=3)
-    table.add_column("Dir",         justify="center",                     min_width=6)
-    table.add_column("Entry Time",  justify="left",   style="cyan",       min_width=22)
-    table.add_column("Entry $",     justify="right",                      min_width=12)
-    table.add_column("Exit $",      justify="right",                      min_width=12)
-    table.add_column("Gross PnL",   justify="right",                      min_width=11)
-    table.add_column("Fees",        justify="right",  style="dim yellow",  min_width=8)
-    table.add_column("Net PnL",     justify="right",                      min_width=11)
-    table.add_column("Result",      justify="center",                     min_width=4)
-    table.add_column("Duration",    justify="right",  style="dim",        min_width=10)
-    table.add_column("Balance",     justify="right",                      min_width=12)
+    table.add_column("#", justify="right", style="dim", min_width=3)
+    table.add_column("Dir", justify="center", min_width=6)
+    table.add_column("Entry Time", justify="left", style="cyan", min_width=22)
+    table.add_column("Entry $", justify="right", min_width=12)
+    table.add_column("Exit $", justify="right", min_width=12)
+    table.add_column("Gross PnL", justify="right", min_width=11)
+    table.add_column("Fees", justify="right", style="dim yellow", min_width=8)
+    table.add_column("Net PnL", justify="right", min_width=11)
+    table.add_column("Result", justify="center", min_width=4)
+    table.add_column("Duration", justify="right", style="dim", min_width=10)
+    table.add_column("Balance", justify="right", min_width=12)
 
     for r in records:
         is_win: bool = r.outcome == "TP" or (r.outcome == "TIME_EXIT" and r.net_pnl > 0)
         pnl_color: str = "bold green" if r.net_pnl >= 0 else "bold red"
-        res_color: str = (
-            "bold yellow" if r.outcome == "TIME_EXIT"
-            else "bold green" if is_win
-            else "bold red"
-        )
+        res_color: str = "bold yellow" if r.outcome == "TIME_EXIT" else "bold green" if is_win else "bold red"
         dir_color: str = "green" if r.direction == "LONG" else "red"
         gpnl_sign: str = "+" if r.gross_pnl >= 0 else ""
         npnl_sign: str = "+" if r.net_pnl >= 0 else ""
         entry_ts: str = str(r.entry_time).replace("+00:00", "").strip()
-        duration_str: str = (
-            f"{r.duration_s:.0f}s" if r.duration_s < 60
-            else f"{r.duration_s / 60:.1f}m"
-        )
+        duration_str: str = f"{r.duration_s:.0f}s" if r.duration_s < 60 else f"{r.duration_s / 60:.1f}m"
 
         table.add_row(
             str(r.trade_id),
@@ -461,11 +442,7 @@ def _render_trade_log(records: list[TradeRecord], config: TradeConfig) -> None:
 
 def _render_performance_panel(report: PerformanceReport) -> None:
     """Print a two-column Rich Table with the aggregate performance metrics."""
-    pf_str: str = (
-        f"{report.profit_factor:.3f}"
-        if report.profit_factor != float("inf")
-        else "INF"
-    )
+    pf_str: str = f"{report.profit_factor:.3f}" if report.profit_factor != float("inf") else "INF"
     net_color: str = "bold green" if report.net_pnl >= 0 else "bold red"
     pf_color: str = "bold green" if report.profit_factor >= 1 else "bold red"
     wr_color: str = "bold green" if report.win_rate_pct >= 50 else "bold red"
@@ -478,29 +455,29 @@ def _render_performance_panel(report: PerformanceReport) -> None:
         expand=False,
     )
     table.add_column("Metric", style="dim white", min_width=26)
-    table.add_column("Value",  min_width=18)
+    table.add_column("Value", min_width=18)
 
     rows: list[tuple[str, str]] = [
-        ("Initial Balance",      f"[white]${report.initial_balance:,.2f}[/white]"),
-        ("Final Balance",        f"[white]${report.final_balance:,.4f}[/white]"),
-        ("Net PnL",              f"[{net_color}]${report.net_pnl:+,.4f}[/{net_color}]"),
-        ("Return",               f"[{net_color}]{report.return_pct:+.4f}%[/{net_color}]"),
-        ("",                     ""),
-        ("Total Trades",         f"[white]{report.total_trades}[/white]"),
-        ("Winning Trades",       f"[bold green]{report.winning_trades}[/bold green]"),
-        ("Losing Trades",        f"[bold red]{report.losing_trades}[/bold red]"),
-        ("Win Rate",             f"[{wr_color}]{report.win_rate_pct:.1f}%[/{wr_color}]"),
-        ("",                     ""),
-        ("Gross Profit",         f"[green]${report.gross_profit:,.4f}[/green]"),
-        ("Gross Loss",           f"[red]${report.gross_loss:,.4f}[/red]"),
-        ("Profit Factor",        f"[{pf_color}]{pf_str}[/{pf_color}]"),
-        ("",                     ""),
-        ("Avg Win",              f"[green]${report.avg_win_usdt:,.4f}[/green]"),
-        ("Avg Loss",             f"[red]${report.avg_loss_usdt:,.4f}[/red]"),
-        ("Avg Trade Duration",   f"[white]{report.avg_duration_s:.1f}s[/white]"),
-        ("",                     ""),
-        ("Max Drawdown (USDT)",  f"[red]${report.max_drawdown_usdt:,.4f}[/red]"),
-        ("Max Drawdown (%)",     f"[red]{report.max_drawdown_pct:.4f}%[/red]"),
+        ("Initial Balance", f"[white]${report.initial_balance:,.2f}[/white]"),
+        ("Final Balance", f"[white]${report.final_balance:,.4f}[/white]"),
+        ("Net PnL", f"[{net_color}]${report.net_pnl:+,.4f}[/{net_color}]"),
+        ("Return", f"[{net_color}]{report.return_pct:+.4f}%[/{net_color}]"),
+        ("", ""),
+        ("Total Trades", f"[white]{report.total_trades}[/white]"),
+        ("Winning Trades", f"[bold green]{report.winning_trades}[/bold green]"),
+        ("Losing Trades", f"[bold red]{report.losing_trades}[/bold red]"),
+        ("Win Rate", f"[{wr_color}]{report.win_rate_pct:.1f}%[/{wr_color}]"),
+        ("", ""),
+        ("Gross Profit", f"[green]${report.gross_profit:,.4f}[/green]"),
+        ("Gross Loss", f"[red]${report.gross_loss:,.4f}[/red]"),
+        ("Profit Factor", f"[{pf_color}]{pf_str}[/{pf_color}]"),
+        ("", ""),
+        ("Avg Win", f"[green]${report.avg_win_usdt:,.4f}[/green]"),
+        ("Avg Loss", f"[red]${report.avg_loss_usdt:,.4f}[/red]"),
+        ("Avg Trade Duration", f"[white]{report.avg_duration_s:.1f}s[/white]"),
+        ("", ""),
+        ("Max Drawdown (USDT)", f"[red]${report.max_drawdown_usdt:,.4f}[/red]"),
+        ("Max Drawdown (%)", f"[red]{report.max_drawdown_pct:.4f}%[/red]"),
     ]
 
     for metric, value in rows:
@@ -518,27 +495,22 @@ def _render_performance_panel(report: PerformanceReport) -> None:
 
 def _parse_args() -> argparse.Namespace:
     """Parse CLI overrides for data directory, detector, and trade parameters."""
-    parser = argparse.ArgumentParser(
-        description="SMC event-driven backtester for V3-Crypto-Quant"
+    parser = argparse.ArgumentParser(description="SMC event-driven backtester for V3-Crypto-Quant")
+    parser.add_argument("--data-dir", type=pathlib.Path, default=pathlib.Path("data"))
+    parser.add_argument("--z-threshold", type=float, default=2.0)
+    parser.add_argument("--div-window", type=int, default=100)
+    parser.add_argument("--balance", type=float, default=10_000.0)
+    parser.add_argument("--position-usdt", type=float, default=1_000.0, help="Fixed notional per trade in USDT")
+    parser.add_argument("--tp", type=float, default=300.0, help="Take Profit distance from entry in USDT")
+    parser.add_argument("--sl", type=float, default=150.0, help="Stop Loss distance from entry in USDT")
+    parser.add_argument("--fee-rate", type=float, default=0.0004, help="Taker fee rate, e.g. 0.0004 = 0.04%%")
+    parser.add_argument("--cooldown-s", type=int, default=60, help="Post-trade cooldown in seconds")
+    parser.add_argument(
+        "--trailing-activation", type=float, default=100.0, help="Profit distance in USDT to move SL to break-even"
     )
-    parser.add_argument("--data-dir",       type=pathlib.Path, default=pathlib.Path("data"))
-    parser.add_argument("--z-threshold",    type=float, default=2.0)
-    parser.add_argument("--div-window",     type=int,   default=100)
-    parser.add_argument("--balance",        type=float, default=10_000.0)
-    parser.add_argument("--position-usdt",  type=float, default=1_000.0,
-                        help="Fixed notional per trade in USDT")
-    parser.add_argument("--tp",             type=float, default=300.0,
-                        help="Take Profit distance from entry in USDT")
-    parser.add_argument("--sl",             type=float, default=150.0,
-                        help="Stop Loss distance from entry in USDT")
-    parser.add_argument("--fee-rate",            type=float, default=0.0004,
-                        help="Taker fee rate, e.g. 0.0004 = 0.04%%")
-    parser.add_argument("--cooldown-s",          type=int,   default=60,
-                        help="Post-trade cooldown in seconds")
-    parser.add_argument("--trailing-activation", type=float, default=100.0,
-                        help="Profit distance in USDT to move SL to break-even")
-    parser.add_argument("--max-duration-s",      type=int,   default=1800,
-                        help="Maximum trade duration in seconds before time-based exit")
+    parser.add_argument(
+        "--max-duration-s", type=int, default=1800, help="Maximum trade duration in seconds before time-based exit"
+    )
     parser.add_argument(
         "--gex-file",
         type=pathlib.Path,
@@ -565,8 +537,7 @@ def main() -> None:
 
     if not args.gex_file.exists():
         _CONSOLE.print(
-            f"[red]GEX snapshot not found: {args.gex_file} — "
-            "run the Deribit client or pass --gex-file.[/red]"
+            f"[red]GEX snapshot not found: {args.gex_file} — run the Deribit client or pass --gex-file.[/red]"
         )
         return
 
@@ -593,9 +564,7 @@ def main() -> None:
         _CONSOLE.print("[yellow]No signals detected — backtest aborted.[/yellow]")
         return
 
-    signal_map: dict[int, str] = dict(
-        zip(signals["timestamp_ms"].to_numpy(), signals["signal"].to_numpy())
-    )
+    signal_map: dict[int, str] = dict(zip(signals["timestamp_ms"].to_numpy(), signals["signal"].to_numpy()))
     _CONSOLE.print(
         f"[dim]Running event loop over {len(df):,} ticks with "
         f"{len(signal_map)} signals "
@@ -612,15 +581,10 @@ def main() -> None:
         engine.process_tick(row)
 
     if engine.has_open_position:
-        _CONSOLE.print(
-            "[yellow]Note: 1 position was still open at end of data "
-            "and was not counted.[/yellow]\n"
-        )
+        _CONSOLE.print("[yellow]Note: 1 position was still open at end of data and was not counted.[/yellow]\n")
 
     records: list[TradeRecord] = engine.trade_records
-    report: PerformanceReport = compute_performance_report(
-        records, engine.equity_curve, config
-    )
+    report: PerformanceReport = compute_performance_report(records, engine.equity_curve, config)
 
     if not records:
         _CONSOLE.print("[yellow]No trades were executed.[/yellow]")

@@ -49,15 +49,11 @@ def fault_broker(tmp_path: pathlib.Path, mock_exchange: MagicMock) -> CCXTBroker
 class TestStateRecovery:
     """CCXTBroker correctly restores position state from disk on cold start."""
 
-    def test_has_open_position_is_true_after_recovery(
-        self, fault_broker: CCXTBroker
-    ) -> None:
+    def test_has_open_position_is_true_after_recovery(self, fault_broker: CCXTBroker) -> None:
         """has_open_position must be True when the saved state contains a LONG position."""
         assert fault_broker.has_open_position is True
 
-    def test_session_pnl_matches_persisted_value(
-        self, fault_broker: CCXTBroker
-    ) -> None:
+    def test_session_pnl_matches_persisted_value(self, fault_broker: CCXTBroker) -> None:
         """_session_pnl must be restored exactly from the state file."""
         assert fault_broker._session_pnl == pytest.approx(_FAULT_STATE["session_pnl"])
 
@@ -101,9 +97,7 @@ class TestSignalBlockedOnSystemFault:
 
         mock_exchange.create_market_sell_order.assert_not_called()
 
-    async def test_position_state_unchanged_after_blocked_signal(
-        self, fault_broker: CCXTBroker
-    ) -> None:
+    async def test_position_state_unchanged_after_blocked_signal(self, fault_broker: CCXTBroker) -> None:
         """Blocking a signal must not mutate any position fields on the broker."""
         position_before = fault_broker._position
         entry_before = fault_broker._entry_price

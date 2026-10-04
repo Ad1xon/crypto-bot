@@ -123,15 +123,13 @@ def _draw_frame(
     y_pos = list(range(len(strikes)))
 
     bars = ax.barh(y_pos, gex_vals, color=colors, edgecolor="none", height=0.65)
-    ax.bar_label(bars, fmt='%.3f', padding=5, color='#e0e0e0', fontsize=9, fontweight='bold')
+    ax.bar_label(bars, fmt="%.3f", padding=5, color="#e0e0e0", fontsize=9, fontweight="bold")
     ax.axvline(0.0, color=COLOR_ZERO_LINE, linewidth=0.9, linestyle="--", zorder=3)
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels([f"${int(s):,}" for s in strikes], fontsize=8)
 
-    ax.xaxis.set_major_formatter(
-        mticker.FuncFormatter(lambda val, _: f"{val:.3f}")
-    )
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda val, _: f"{val:.3f}"))
 
     ts_display = timestamp[:19].replace("T", " ") if timestamp else "n/a"
     spot_display = f"${spot:,.0f}" if spot > 0.0 else "n/a"
@@ -153,7 +151,8 @@ def _draw_frame(
     positive_count = sum(1 for g in gex_vals if g >= 0.0)
     negative_count = len(gex_vals) - positive_count
     ax.text(
-        0.99, 0.01,
+        0.99,
+        0.01,
         f"▲ {positive_count} positive   ▼ {negative_count} negative",
         transform=ax.transAxes,
         fontsize=7,

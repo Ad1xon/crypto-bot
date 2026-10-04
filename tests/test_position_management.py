@@ -46,9 +46,7 @@ def _inject_long(trader: PaperTrader, entry_price: float) -> None:
 class TestTrailingStopLong:
     """Trailing stop mechanics for an open LONG position."""
 
-    def test_sl_ratchets_monotonically_above_activation_threshold(
-        self, tmp_path: pathlib.Path
-    ) -> None:
+    def test_sl_ratchets_monotonically_above_activation_threshold(self, tmp_path: pathlib.Path) -> None:
         """Each successive price high above the activation level must raise the SL or keep it flat."""
         trader = _make_trader(tmp_path)
         _inject_long(trader, _ENTRY)
@@ -57,14 +55,11 @@ class TestTrailingStopLong:
         for price in [_ACTIVATION_PRICE, 51_000.0, 51_500.0, _ABOVE_PEAK]:
             trader._evaluate_exit(price)
             assert trader._current_sl_price >= prev_sl, (
-                f"SL retreated from {prev_sl:.4f} to {trader._current_sl_price:.4f} "
-                f"on price tick {price}"
+                f"SL retreated from {prev_sl:.4f} to {trader._current_sl_price:.4f} on price tick {price}"
             )
             prev_sl = trader._current_sl_price
 
-    def test_sl_never_retreats_after_price_reversal(
-        self, tmp_path: pathlib.Path
-    ) -> None:
+    def test_sl_never_retreats_after_price_reversal(self, tmp_path: pathlib.Path) -> None:
         """A price reversal below the most recent high must not lower the already-ratcheted SL."""
         trader = _make_trader(tmp_path)
         _inject_long(trader, _ENTRY)
@@ -78,9 +73,7 @@ class TestTrailingStopLong:
             f"SL moved from {peak_sl:.4f} to {trader._current_sl_price:.4f} on reversal"
         )
 
-    def test_sl_does_not_move_below_activation_threshold(
-        self, tmp_path: pathlib.Path
-    ) -> None:
+    def test_sl_does_not_move_below_activation_threshold(self, tmp_path: pathlib.Path) -> None:
         """Price ticks below the activation threshold must leave the initial SL unchanged."""
         trader = _make_trader(tmp_path)
         _inject_long(trader, _ENTRY)
@@ -94,9 +87,7 @@ class TestTrailingStopLong:
 class TestBreakEvenFloor:
     """Break-even price calculation and its role as the trailing SL floor."""
 
-    def test_be_price_equals_entry_plus_round_trip_fee_coverage(
-        self, tmp_path: pathlib.Path
-    ) -> None:
+    def test_be_price_equals_entry_plus_round_trip_fee_coverage(self, tmp_path: pathlib.Path) -> None:
         """The fee-aware BE price must equal entry + entry_price * 2 * fee_rate."""
         fee_rate = 0.0004
         trader = _make_trader(tmp_path, fee_rate=fee_rate)
@@ -107,13 +98,10 @@ class TestBreakEvenFloor:
         trader._evaluate_exit(_ACTIVATION_PRICE)
 
         assert trader._current_sl_price >= expected_be, (
-            f"SL {trader._current_sl_price:.4f} is below break-even {expected_be:.4f}; "
-            "taker fees are not fully covered"
+            f"SL {trader._current_sl_price:.4f} is below break-even {expected_be:.4f}; taker fees are not fully covered"
         )
 
-    def test_be_floor_holds_even_when_dynamic_sl_is_lower(
-        self, tmp_path: pathlib.Path
-    ) -> None:
+    def test_be_floor_holds_even_when_dynamic_sl_is_lower(self, tmp_path: pathlib.Path) -> None:
         """When dynamic_sl < true_be, the SL must be clamped to true_be, not dynamic_sl."""
         fee_rate = 0.0004
         trader = _make_trader(tmp_path, fee_rate=fee_rate)

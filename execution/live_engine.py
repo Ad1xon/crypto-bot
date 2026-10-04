@@ -233,9 +233,7 @@ class PaperTrader(ExecutionEngine):
             self._current_sl_price = self._entry_price + self._sl_usdt
 
         tp_level: float = (
-            self._entry_price + self._tp_usdt
-            if self._position == "LONG"
-            else self._entry_price - self._tp_usdt
+            self._entry_price + self._tp_usdt if self._position == "LONG" else self._entry_price - self._tp_usdt
         )
         _LOG.warning(
             "[PAPER TRADE ENTRY] Opened %s at $%s (mkt $%s, slip %.1fbps) | "
@@ -265,9 +263,7 @@ class PaperTrader(ExecutionEngine):
             true_be_price: float = self._entry_price + fee_coverage
             if price >= self._entry_price + activation_price_delta:
                 dynamic_sl: float = price - sl_price_delta
-                self._current_sl_price = max(
-                    self._current_sl_price, true_be_price, dynamic_sl
-                )
+                self._current_sl_price = max(self._current_sl_price, true_be_price, dynamic_sl)
             if price >= self._entry_price + self._tp_usdt:
                 return ("TP", self._entry_price + self._tp_usdt)
             if price <= self._current_sl_price:
@@ -277,9 +273,7 @@ class PaperTrader(ExecutionEngine):
             true_be_price = self._entry_price - fee_coverage
             if price <= self._entry_price - activation_price_delta:
                 dynamic_sl = price + sl_price_delta
-                self._current_sl_price = min(
-                    self._current_sl_price, true_be_price, dynamic_sl
-                )
+                self._current_sl_price = min(self._current_sl_price, true_be_price, dynamic_sl)
             if price <= self._entry_price - self._tp_usdt:
                 return ("TP", self._entry_price - self._tp_usdt)
             if price >= self._current_sl_price:
@@ -345,25 +339,12 @@ class LiveSignalEngine:
         execution_engine: ExecutionEngine | None = None,
     ) -> None:
         self._detector: MicrostructureDetector = (
-            detector if detector is not None
-            else MicrostructureDetector(divergence_window=100)
+            detector if detector is not None else MicrostructureDetector(divergence_window=100)
         )
-        self._gex: GexRiskManager = (
-            gex_manager if gex_manager is not None
-            else GexRiskManager()
-        )
-        self._confluence: SuperConfluenceFilter = (
-            confluence if confluence is not None
-            else SuperConfluenceFilter()
-        )
-        self._session_vwap: SessionVwap = (
-            session_vwap if session_vwap is not None
-            else SessionVwap()
-        )
-        self.execution_engine: ExecutionEngine = (
-            execution_engine if execution_engine is not None
-            else PaperTrader()
-        )
+        self._gex: GexRiskManager = gex_manager if gex_manager is not None else GexRiskManager()
+        self._confluence: SuperConfluenceFilter = confluence if confluence is not None else SuperConfluenceFilter()
+        self._session_vwap: SessionVwap = session_vwap if session_vwap is not None else SessionVwap()
+        self.execution_engine: ExecutionEngine = execution_engine if execution_engine is not None else PaperTrader()
         self._window: collections.deque[dict] = collections.deque(maxlen=_DEQUE_MAXLEN)
         self._tick_task: asyncio.Task[None] | None = None
         self._signal_task: asyncio.Task[None] | None = None
@@ -389,9 +370,7 @@ class LiveSignalEngine:
         current_time: float = time.time()
 
         if self._tick_task is None or self._tick_task.done():
-            self._tick_task = asyncio.create_task(
-                self.execution_engine.update_tick(price, current_time)
-            )
+            self._tick_task = asyncio.create_task(self.execution_engine.update_tick(price, current_time))
 
         self._window.append(
             {
@@ -447,9 +426,7 @@ class LiveSignalEngine:
                 verdict.gex_ok,
                 verdict.nearest_strike,
                 verdict.gex_value,
-                f"${self._session_vwap.value:,.2f}"
-                if self._session_vwap.value is not None
-                else "n/a",
+                f"${self._session_vwap.value:,.2f}" if self._session_vwap.value is not None else "n/a",
             )
         else:
             _LOG.warning(

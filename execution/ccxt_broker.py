@@ -49,12 +49,12 @@ class CCXTBroker(ExecutionEngine):
         state_file: pathlib.Path = _DEFAULT_STATE_FILE,
     ) -> None:
         exchange_class: type = getattr(ccxt, exchange_id)
-        
+
         exchange_config = {
             "enableRateLimit": True,
             "options": {"defaultType": "swap"},
         }
-        
+
         if exchange_id == "hyperliquid":
             exchange_config["walletAddress"] = api_key
             exchange_config["privateKey"] = api_secret
@@ -225,9 +225,7 @@ class CCXTBroker(ExecutionEngine):
             true_be_price: float = self._entry_price + fee_coverage
             if current_price >= self._entry_price + activation_price_delta:
                 dynamic_sl: float = current_price - sl_price_delta
-                self._current_local_sl_price = max(
-                    self._current_local_sl_price, true_be_price, dynamic_sl
-                )
+                self._current_local_sl_price = max(self._current_local_sl_price, true_be_price, dynamic_sl)
             if current_price >= self._entry_price + self._tp_usdt_dist or current_price <= self._current_local_sl_price:
                 exit_side = "sell"
 
@@ -235,9 +233,7 @@ class CCXTBroker(ExecutionEngine):
             true_be_price = self._entry_price - fee_coverage
             if current_price <= self._entry_price - activation_price_delta:
                 dynamic_sl = current_price + sl_price_delta
-                self._current_local_sl_price = min(
-                    self._current_local_sl_price, true_be_price, dynamic_sl
-                )
+                self._current_local_sl_price = min(self._current_local_sl_price, true_be_price, dynamic_sl)
             if current_price <= self._entry_price - self._tp_usdt_dist or current_price >= self._current_local_sl_price:
                 exit_side = "buy"
 
@@ -251,10 +247,7 @@ class CCXTBroker(ExecutionEngine):
         Bracket-cancel failure sets ``_system_fault`` and freezes all trading.
         """
         if self._system_fault:
-            _LOG.critical(
-                "[CCXT BROKER] Exit blocked — system is in fault state. "
-                "Manual intervention required."
-            )
+            _LOG.critical("[CCXT BROKER] Exit blocked — system is in fault state. Manual intervention required.")
             return
 
         size: float = self._position_btc
@@ -262,13 +255,9 @@ class CCXTBroker(ExecutionEngine):
 
         try:
             if side == "sell":
-                await self._exchange.create_market_sell_order(
-                    self._symbol, size, params=reduce_params
-                )
+                await self._exchange.create_market_sell_order(self._symbol, size, params=reduce_params)
             else:
-                await self._exchange.create_market_buy_order(
-                    self._symbol, size, params=reduce_params
-                )
+                await self._exchange.create_market_buy_order(self._symbol, size, params=reduce_params)
             _LOG.warning(
                 "[CCXT BROKER] Local Trailing SL/TP hit — position closed at market. "
                 "symbol: %s | side: %s | size: %.6f | approx price: %.2f",
@@ -310,9 +299,7 @@ class CCXTBroker(ExecutionEngine):
                 if attempt < _MAX_CANCEL_RETRIES:
                     await asyncio.sleep(1.0)
             except ccxt.BaseError as exc:
-                _LOG.warning(
-                    "[CCXT BROKER] Could not cancel bracket orders after exit — %s", exc
-                )
+                _LOG.warning("[CCXT BROKER] Could not cancel bracket orders after exit — %s", exc)
                 break
 
         if cancel_ok:
@@ -358,8 +345,7 @@ class CCXTBroker(ExecutionEngine):
         """Submit a GEX-sized bracket entry order, subject to all safety guards."""
         if self._system_fault:
             _LOG.critical(
-                "[CCXT BROKER] Signal %s blocked — system is in fault state. "
-                "Manual intervention required.",
+                "[CCXT BROKER] Signal %s blocked — system is in fault state. Manual intervention required.",
                 signal_type,
             )
             return
@@ -403,17 +389,13 @@ class CCXTBroker(ExecutionEngine):
 
         current_balance: float = await self.fetch_balance()
         if current_balance <= 0.0:
-            _LOG.error(
-                "[CCXT BROKER] Balance fetch returned zero — signal %s aborted.", signal_type
-            )
+            _LOG.error("[CCXT BROKER] Balance fetch returned zero — signal %s aborted.", signal_type)
             return
 
         risk_capital: float = current_balance * self._risk_per_trade_pct
         base_size_btc: float = risk_capital / self._base_sl_usdt_dist
         multiplier: float = self._gex_multiplier(abs(gex_value))
-        final_size_btc: float = float(
-            self._exchange.amount_to_precision(self._symbol, base_size_btc * multiplier)
-        )
+        final_size_btc: float = float(self._exchange.amount_to_precision(self._symbol, base_size_btc * multiplier))
 
         if signal_type == _BULLISH:
             hard_sl_price: float = current_price - self._base_sl_usdt_dist
@@ -437,13 +419,9 @@ class CCXTBroker(ExecutionEngine):
 
         try:
             if direction == "LONG":
-                order: dict = await self._exchange.create_market_buy_order(
-                    self._symbol, final_size_btc, params=params
-                )
+                order: dict = await self._exchange.create_market_buy_order(self._symbol, final_size_btc, params=params)
             else:
-                order = await self._exchange.create_market_sell_order(
-                    self._symbol, final_size_btc, params=params
-                )
+                order = await self._exchange.create_market_sell_order(self._symbol, final_size_btc, params=params)
 
             fill_ts: float = time.perf_counter()
             latency_ms: float | None = None
@@ -470,9 +448,7 @@ class CCXTBroker(ExecutionEngine):
             self._current_local_sl_price = float(sl_price_str)
             self._save_state()
 
-            latency_field: str = (
-                f"{latency_ms:.2f} ms" if latency_ms is not None else "n/a"
-            )
+            latency_field: str = f"{latency_ms:.2f} ms" if latency_ms is not None else "n/a"
             asyncio.create_task(
                 self._alerter.send_alert(
                     title=f"Order Executed — {direction}",
@@ -503,14 +479,8 @@ class CCXTBroker(ExecutionEngine):
             )
 
         except ccxt.NetworkError as exc:
-            _LOG.error(
-                "[CCXT BROKER] Network error executing signal '%s' — %s", signal_type, exc
-            )
+            _LOG.error("[CCXT BROKER] Network error executing signal '%s' — %s", signal_type, exc)
         except ccxt.RateLimitExceeded as exc:
-            _LOG.warning(
-                "[CCXT BROKER] Rate limit executing signal '%s' — %s", signal_type, exc
-            )
+            _LOG.warning("[CCXT BROKER] Rate limit executing signal '%s' — %s", signal_type, exc)
         except ccxt.BaseError as exc:
-            _LOG.error(
-                "[CCXT BROKER] Exchange error executing signal '%s' — %s", signal_type, exc
-            )
+            _LOG.error("[CCXT BROKER] Exchange error executing signal '%s' — %s", signal_type, exc)

@@ -59,6 +59,7 @@ async def _build_execution_engine() -> ExecutionEngine:
 
 def _register_sigterm(loop: asyncio.AbstractEventLoop, main_task: asyncio.Task) -> None:
     """Cancel the main task on SIGTERM for clean container/systemd shutdown."""
+
     def _on_sigterm() -> None:
         _LOG.warning("SIGTERM received — initiating graceful shutdown.")
         main_task.cancel()

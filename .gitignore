@@ -6,3 +6,4 @@ data/
 venv/
 .pytest_cache/
 .github/
+*.html

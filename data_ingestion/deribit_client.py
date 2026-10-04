@@ -60,9 +60,7 @@ def _bs_gamma(spot: float, strike: float, tau: float, sigma: float, r: float) ->
     if tau <= 0.0 or sigma <= 0.0 or spot <= 0.0 or strike <= 0.0:
         return 0.0
     try:
-        d1 = (
-            math.log(spot / strike) + (r + 0.5 * sigma ** 2) * tau
-        ) / (sigma * math.sqrt(tau))
+        d1 = (math.log(spot / strike) + (r + 0.5 * sigma**2) * tau) / (sigma * math.sqrt(tau))
         return _norm_pdf(d1) / (spot * sigma * math.sqrt(tau))
     except (ValueError, ZeroDivisionError):
         return 0.0

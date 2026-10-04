@@ -49,12 +49,8 @@ class TickLogger:
         self._batch_size: int = config.batch_size
         self._flush_interval_s: float = config.flush_interval_s
         self._data_dir: Path = Path(config.data_dir)
-        self._trade_queue: asyncio.Queue[TradeRecord | None] = asyncio.Queue(
-            maxsize=config.batch_size * 2
-        )
-        self._bbo_queue: asyncio.Queue[BBORecord | None] = asyncio.Queue(
-            maxsize=config.batch_size * 2
-        )
+        self._trade_queue: asyncio.Queue[TradeRecord | None] = asyncio.Queue(maxsize=config.batch_size * 2)
+        self._bbo_queue: asyncio.Queue[BBORecord | None] = asyncio.Queue(maxsize=config.batch_size * 2)
         self._worker_tasks: list[asyncio.Task[None]] = []
 
     async def start(self) -> None:
@@ -127,9 +123,7 @@ class TickLogger:
 
         while True:
             try:
-                record = await asyncio.wait_for(
-                    queue.get(), timeout=self._flush_interval_s
-                )
+                record = await asyncio.wait_for(queue.get(), timeout=self._flush_interval_s)
             except asyncio.TimeoutError:
                 if batch:
                     await self._write_parquet(batch, record_type)

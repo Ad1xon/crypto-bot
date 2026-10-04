@@ -45,9 +45,7 @@ def _load_parquet_glob(data_dir: pathlib.Path, prefix: str) -> pd.DataFrame:
     """
     files: list[pathlib.Path] = sorted(data_dir.glob(f"{prefix}_*.parquet"))
     if not files:
-        raise FileNotFoundError(
-            f"No Parquet files with prefix '{prefix}' found in '{data_dir}'"
-        )
+        raise FileNotFoundError(f"No Parquet files with prefix '{prefix}' found in '{data_dir}'")
     return (
         pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
         .sort_values("timestamp_ms", kind="stable")
@@ -107,10 +105,14 @@ def _render_summary(
     duration_min: float = (df["dt"].max() - df["dt"].min()).total_seconds() / 60
 
     stats_text = Text.assemble(
-        ("Period   ", "dim"), (f"{period_start} - {period_end} UTC", "cyan"),
-        ("   Ticks  ", "dim"), (f"{len(df):,}", "white"),
-        ("   Duration  ", "dim"), (f"{duration_min:.1f} min\n", "white"),
-        ("CVD Final  ", "dim"), (f"{cvd_sign}{cvd_final:.4f} BTC", cvd_color),
+        ("Period   ", "dim"),
+        (f"{period_start} - {period_end} UTC", "cyan"),
+        ("   Ticks  ", "dim"),
+        (f"{len(df):,}", "white"),
+        ("   Duration  ", "dim"),
+        (f"{duration_min:.1f} min\n", "white"),
+        ("CVD Final  ", "dim"),
+        (f"{cvd_sign}{cvd_final:.4f} BTC", cvd_color),
         ("   OFI Median  ", "dim"),
         (f"{df['ofi_smooth'].median():.6f}", "white"),
         ("   Signals  ", "dim"),
@@ -142,13 +144,13 @@ def _render_signals_table(signals: pd.DataFrame) -> None:
         show_lines=False,
         expand=False,
     )
-    table.add_column("#",             style="dim",         justify="right",  min_width=3)
-    table.add_column("Timestamp (UTC)",                    justify="left",   min_width=26)
-    table.add_column("Signal",                             justify="left",   min_width=22)
-    table.add_column("Price (USDT)",  style="white",       justify="right",  min_width=14)
-    table.add_column("dPrice",                             justify="right",  min_width=10)
-    table.add_column("dCVD (BTC)",                         justify="right",  min_width=13)
-    table.add_column("OFI Smooth",    style="dim white",   justify="right",  min_width=12)
+    table.add_column("#", style="dim", justify="right", min_width=3)
+    table.add_column("Timestamp (UTC)", justify="left", min_width=26)
+    table.add_column("Signal", justify="left", min_width=22)
+    table.add_column("Price (USDT)", style="white", justify="right", min_width=14)
+    table.add_column("dPrice", justify="right", min_width=10)
+    table.add_column("dCVD (BTC)", justify="right", min_width=13)
+    table.add_column("OFI Smooth", style="dim white", justify="right", min_width=12)
 
     for i, row in enumerate(signals.itertuples(index=False), start=1):
         is_bull: bool = row.signal == "BULLISH_ABSORPTION"
@@ -186,9 +188,7 @@ def _render_empty_result(z_threshold: float, price_tolerance: float) -> None:
 
 def _parse_args() -> argparse.Namespace:
     """Parse optional CLI overrides for data directory and detector parameters."""
-    parser = argparse.ArgumentParser(
-        description="SMC microstructure signal scanner for V3-Crypto-Quant"
-    )
+    parser = argparse.ArgumentParser(description="SMC microstructure signal scanner for V3-Crypto-Quant")
     parser.add_argument(
         "--data-dir",
         type=pathlib.Path,

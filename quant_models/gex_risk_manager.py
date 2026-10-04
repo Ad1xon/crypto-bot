@@ -103,9 +103,7 @@ class GexRiskManager:
             )
             return False
 
-        ctx: tuple[float, float] | None = self._confluence.nearest_strike_gex(
-            gex_map, current_price
-        )
+        ctx: tuple[float, float] | None = self._confluence.nearest_strike_gex(gex_map, current_price)
         if ctx is None:
             return False
 
@@ -113,8 +111,7 @@ class GexRiskManager:
         allowed: bool = self._confluence.gex_aligned(signal_type, gex_value)
         verdict: str = "ALLOWED" if allowed else "BLOCKED"
         _LOG.debug(
-            "GEX Filter: Price %.2f -> Nearest Strike %.0f (GEX: %.6f) "
-            "-> %s signal %s",
+            "GEX Filter: Price %.2f -> Nearest Strike %.0f (GEX: %.6f) -> %s signal %s",
             current_price,
             nearest,
             gex_value,

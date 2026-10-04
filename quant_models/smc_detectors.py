@@ -33,8 +33,15 @@ import pandas as pd
 _BULLISH_LABEL: Final[str] = "BULLISH_ABSORPTION"
 _BEARISH_LABEL: Final[str] = "BEARISH_ABSORPTION"
 _SIGNAL_COLUMNS: Final[list[str]] = [
-    "timestamp_ms", "dt", "price", "cvd", "ofi_smooth",
-    "price_delta", "cvd_delta", "signal", "signal_ts",
+    "timestamp_ms",
+    "dt",
+    "price",
+    "cvd",
+    "ofi_smooth",
+    "price_delta",
+    "cvd_delta",
+    "signal",
+    "signal_ts",
 ]
 
 
@@ -90,11 +97,7 @@ class MicrostructureDetector:
         ``ofi_smooth_window`` ticks while filtering tick-to-tick jitter.
         """
         result: pd.DataFrame = df.copy()
-        result["ofi_smooth"] = (
-            result["ofi"]
-            .rolling(window=self._ofi_smooth_window, min_periods=1)
-            .mean()
-        )
+        result["ofi_smooth"] = result["ofi"].rolling(window=self._ofi_smooth_window, min_periods=1).mean()
         return result
 
     def detect_cvd_divergence(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -124,9 +127,7 @@ class MicrostructureDetector:
         moment absorption signals are materialised — the start of the live
         latency stack (signal → fill).
         """
-        working: pd.DataFrame = (
-            df if "ofi_smooth" in df.columns else self.smooth_ofi(df)
-        )
+        working: pd.DataFrame = df if "ofi_smooth" in df.columns else self.smooth_ofi(df)
 
         price_delta: pd.Series = working["price"].diff(self._divergence_window)
         cvd_delta: pd.Series = working["cvd"].diff(self._divergence_window)
@@ -141,14 +142,10 @@ class MicrostructureDetector:
         price_z: pd.Series = price_delta / price_std
 
         bullish_mask: pd.Series = (
-            (cvd_z < -self._cvd_z_threshold)
-            & (price_z > -self._price_tolerance)
-            & (working["ofi_smooth"] > 0.0)
+            (cvd_z < -self._cvd_z_threshold) & (price_z > -self._price_tolerance) & (working["ofi_smooth"] > 0.0)
         )
         bearish_mask: pd.Series = (
-            (cvd_z > self._cvd_z_threshold)
-            & (price_z < self._price_tolerance)
-            & (working["ofi_smooth"] < 0.0)
+            (cvd_z > self._cvd_z_threshold) & (price_z < self._price_tolerance) & (working["ofi_smooth"] < 0.0)
         )
 
         signal_col: pd.Series = pd.Series("", index=working.index, dtype=object)
@@ -186,15 +183,10 @@ class MicrostructureDetector:
             return df
 
         original_positions: pd.Series = df.index.to_series()
-        is_new_cluster: pd.Series = (
-            (original_positions.diff().fillna(2) > 1)
-            | df["signal"].ne(df["signal"].shift())
-        )
+        is_new_cluster: pd.Series = (original_positions.diff().fillna(2) > 1) | df["signal"].ne(df["signal"].shift())
         cluster_ids: pd.Series = is_new_cluster.cumsum()
 
         peak_indices: pd.Series = (
-            df.assign(_cluster=cluster_ids)
-            .groupby("_cluster")["cvd_delta"]
-            .apply(lambda s: s.abs().idxmax())
+            df.assign(_cluster=cluster_ids).groupby("_cluster")["cvd_delta"].apply(lambda s: s.abs().idxmax())
         )
         return df.loc[peak_indices.to_numpy()]

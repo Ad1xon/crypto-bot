@@ -66,11 +66,14 @@ class DiscordAlerter:
         payload: dict[str, object] = {"embeds": [embed]}
 
         try:
-            async with aiohttp.ClientSession() as session, session.post(
-                self._webhook_url,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=10.0),
-            ) as response:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    self._webhook_url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=10.0),
+                ) as response,
+            ):
                 if response.status not in {200, 204}:
                     _LOG.error(
                         "[DISCORD ALERTER] Webhook rejected alert '%s' — HTTP %d.",

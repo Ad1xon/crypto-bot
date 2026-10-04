@@ -77,9 +77,7 @@ class TestFillLatency:
         mock_exchange: MagicMock,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        mock_exchange.create_market_buy_order = AsyncMock(
-            return_value={"id": "lat_001"}
-        )
+        mock_exchange.create_market_buy_order = AsyncMock(return_value={"id": "lat_001"})
         clean_broker._alerter.send_alert = AsyncMock()
         signal_ts: float = time.perf_counter()
 
@@ -92,8 +90,7 @@ class TestFillLatency:
             )
 
         assert any(
-            "Order executed. Latency:" in record.getMessage()
-            and "ms" in record.getMessage()
+            "Order executed. Latency:" in record.getMessage() and "ms" in record.getMessage()
             for record in caplog.records
         )
         clean_broker._alerter.send_alert.assert_called_once()

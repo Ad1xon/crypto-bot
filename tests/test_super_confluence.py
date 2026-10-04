@@ -47,16 +47,12 @@ class TestSessionVwap:
 
 
 class TestVwapAlignment:
-    def test_bullish_requires_price_at_or_above_vwap(
-        self, confluence: SuperConfluenceFilter
-    ) -> None:
+    def test_bullish_requires_price_at_or_above_vwap(self, confluence: SuperConfluenceFilter) -> None:
         assert confluence.vwap_aligned(_BULLISH, 100.0, 100.0) is True
         assert confluence.vwap_aligned(_BULLISH, 101.0, 100.0) is True
         assert confluence.vwap_aligned(_BULLISH, 99.0, 100.0) is False
 
-    def test_bearish_requires_price_at_or_below_vwap(
-        self, confluence: SuperConfluenceFilter
-    ) -> None:
+    def test_bearish_requires_price_at_or_below_vwap(self, confluence: SuperConfluenceFilter) -> None:
         assert confluence.vwap_aligned(_BEARISH, 100.0, 100.0) is True
         assert confluence.vwap_aligned(_BEARISH, 99.0, 100.0) is True
         assert confluence.vwap_aligned(_BEARISH, 101.0, 100.0) is False
@@ -66,16 +62,12 @@ class TestVwapAlignment:
 
 
 class TestGexAlignment:
-    def test_bullish_needs_positive_gex(
-        self, confluence: SuperConfluenceFilter
-    ) -> None:
+    def test_bullish_needs_positive_gex(self, confluence: SuperConfluenceFilter) -> None:
         assert confluence.gex_aligned(_BULLISH, 0.1) is True
         assert confluence.gex_aligned(_BULLISH, -0.1) is False
         assert confluence.gex_aligned(_BULLISH, 0.0) is False
 
-    def test_bearish_needs_negative_gex(
-        self, confluence: SuperConfluenceFilter
-    ) -> None:
+    def test_bearish_needs_negative_gex(self, confluence: SuperConfluenceFilter) -> None:
         assert confluence.gex_aligned(_BEARISH, -0.1) is True
         assert confluence.gex_aligned(_BEARISH, 0.1) is False
         assert confluence.gex_aligned(_BEARISH, 0.0) is False
@@ -114,9 +106,7 @@ class TestEvaluate:
         above_vwap = confluence.evaluate(_BEARISH, 64_200.0, 64_100.0, gex_map)
         assert above_vwap.allowed is False
 
-    def test_empty_gex_map_blocks(
-        self, confluence: SuperConfluenceFilter
-    ) -> None:
+    def test_empty_gex_map_blocks(self, confluence: SuperConfluenceFilter) -> None:
         verdict = confluence.evaluate(_BULLISH, 65_000.0, 64_000.0, {})
         assert verdict.allowed is False
         assert verdict.gex_ok is False
