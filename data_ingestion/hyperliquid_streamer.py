@@ -119,18 +119,15 @@ class HyperliquidStreamer(DataStreamer):
             self._handle_trades(payload.get("data", []))
 
     def _handle_orderbook(self, data: dict[str, Any]) -> None:
-        # Mock parsing logic for Hyperliquid L2 book
-        levels = data.get("levels", [[]])
+        levels = data.get("levels", [[], []])
         if not levels or not levels[0]:
             return
 
-        # Hyperliquid sends full snapshot for BBO usually, or full book on updates
-        best_bid = (float(levels[0][0].get("px", 0)), float(levels[0][0].get("sz", 0))) if levels[0] else (0.0, 0.0)
-        best_ask = (
-            (float(levels[1][0].get("px", 0)), float(levels[1][0].get("sz", 0)))
-            if len(levels) > 1 and levels[1]
-            else (0.0, 0.0)
-        )
+        bids = [(float(lvl.get("px", 0)), float(lvl.get("sz", 0))) for lvl in levels[0][:20]]
+        asks = [(float(lvl.get("px", 0)), float(lvl.get("sz", 0))) for lvl in levels[1][:20]] if len(levels) > 1 else []
+
+        best_bid = bids[0] if bids else (0.0, 0.0)
+        best_ask = asks[0] if asks else (0.0, 0.0)
         ofi = best_bid[1] - best_ask[1]
 
         self._tick_logger.put_bbo(
@@ -146,7 +143,7 @@ class HyperliquidStreamer(DataStreamer):
         )
 
         if self._dashboard is not None:
-            self._dashboard.update([best_bid], [best_ask], self._cvd)
+            self._dashboard.update(bids, asks, self._cvd)
 
         self._live_engine.process_tick(
             timestamp_ms=data.get("time", 0),
