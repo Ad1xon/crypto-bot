@@ -42,23 +42,6 @@ class DeribitConfig:
 
 
 @dataclass(frozen=True)
-class BinanceConfig:
-    """Immutable Binance WebSocket connection parameters."""
-
-    ws_base_url: str = field(default_factory=lambda: os.getenv("BINANCE_WS_URL", "wss://stream.binance.com:9443/ws"))
-    symbol: str = field(default_factory=lambda: os.getenv("TRADING_SYMBOL", "btcusdt").lower())
-    depth_stream_suffix: str = "@depth@100ms"
-    trade_stream_suffix: str = "@aggTrade"
-
-    @property
-    def combined_stream_url(self) -> str:
-        """Build the combined multi-stream URL for this symbol."""
-        depth = f"{self.symbol}{self.depth_stream_suffix}"
-        trade = f"{self.symbol}{self.trade_stream_suffix}"
-        return f"{self.ws_base_url}/{depth}/{trade}"
-
-
-@dataclass(frozen=True)
 class HyperliquidWSConfig:
     """Immutable Hyperliquid WebSocket connection parameters."""
 
@@ -102,7 +85,6 @@ class AlertingConfig:
 class AppConfig:
     """Top-level application configuration composed of sub-configs."""
 
-    binance: BinanceConfig = field(default_factory=BinanceConfig)
     hyperliquid_ws: HyperliquidWSConfig = field(default_factory=HyperliquidWSConfig)
     reconnect: ReconnectPolicy = field(default_factory=ReconnectPolicy)
     tick_logger: TickLoggerConfig = field(default_factory=TickLoggerConfig)
