@@ -39,6 +39,11 @@ class CLIDashboard:
             refresh_per_second=_REFRESH_PER_SEC,
             screen=True,
         )
+        self._bids: list[tuple[float, float]] = []
+        self._asks: list[tuple[float, float]] = []
+        self._cvd: float = 0.0
+        self._sentiment_text: str = "N/A"
+        self._macro_text: str = "N/A"
 
     def start(self) -> None:
         """Enter the Rich Live full-screen context."""
@@ -55,35 +60,34 @@ class CLIDashboard:
         cvd: float = 0.0,
     ) -> None:
         """Push a new order book snapshot and current CVD into the live display."""
-        self._live.update(self._build_layout(bids, asks, cvd))
+        self._bids = bids
+        self._asks = asks
+        self._cvd = cvd
+        self._live.update(self._build_layout())
 
-    def _build_layout(
-        self,
-        bids: list[tuple[float, float]],
-        asks: list[tuple[float, float]],
-        cvd: float,
-    ) -> Layout:
+    def update_extras(self, sentiment: str, macro: str) -> None:
+        """Update background data like sentiment and macro status."""
+        self._sentiment_text = sentiment
+        self._macro_text = macro
+        self._live.update(self._build_layout())
+
+    def _build_layout(self) -> Layout:
         """Assemble the full terminal layout from current market data."""
         layout = Layout()
         layout.split_column(
-            Layout(name="header", size=6),
+            Layout(name="header", size=7),
             Layout(name="body"),
         )
-        layout["header"].update(self._build_header(bids, asks, cvd))
-        layout["body"].update(self._build_body(bids, asks))
+        layout["header"].update(self._build_header())
+        layout["body"].update(self._build_body())
         return layout
 
-    def _build_header(
-        self,
-        bids: list[tuple[float, float]],
-        asks: list[tuple[float, float]],
-        cvd: float,
-    ) -> Panel:
+    def _build_header(self) -> Panel:
         """Construct the summary panel with symbol, spread, OFI, CVD, and NBBO."""
-        best_bid_price: float = bids[0][0] if bids else 0.0
-        best_ask_price: float = asks[0][0] if asks else 0.0
-        best_bid_vol: float = bids[0][1] if bids else 0.0
-        best_ask_vol: float = asks[0][1] if asks else 0.0
+        best_bid_price: float = self._bids[0][0] if self._bids else 0.0
+        best_ask_price: float = self._asks[0][0] if self._asks else 0.0
+        best_bid_vol: float = self._bids[0][1] if self._bids else 0.0
+        best_ask_vol: float = self._asks[0][1] if self._asks else 0.0
 
         spread: float = best_ask_price - best_bid_price
         ofi: float = best_bid_vol - best_ask_vol
@@ -91,16 +95,18 @@ class CLIDashboard:
         ofi_color: str = "green" if ofi >= 0 else "red"
         ofi_sign: str = "+" if ofi >= 0 else ""
 
-        cvd_color: str = "bold green" if cvd >= 0 else "bold red"
-        cvd_sign: str = "+" if cvd >= 0 else ""
+        cvd_color: str = "bold green" if self._cvd >= 0 else "bold red"
+        cvd_sign: str = "+" if self._cvd >= 0 else ""
 
         lines = (
             f"\n  [bold cyan]{self._symbol}[/bold cyan]"
             f"     [dim]Spread:[/dim] [yellow]{spread:,.2f}[/yellow]"
             f"     [dim]OFI:[/dim] [{ofi_color}]{ofi_sign}{ofi:.6f}[/{ofi_color}]"
-            f"     [dim]CVD:[/dim] [{cvd_color}]{cvd_sign}{cvd:,.4f}[/{cvd_color}]"
+            f"     [dim]CVD:[/dim] [{cvd_color}]{cvd_sign}{self._cvd:,.4f}[/{cvd_color}]"
             f"\n  [dim]Best Bid:[/dim] [bold green]{best_bid_price:,.2f}[/bold green]"
             f"     [dim]Best Ask:[/dim] [bold red]{best_ask_price:,.2f}[/bold red]"
+            f"     [dim]Macro:[/dim] [magenta]{self._macro_text}[/magenta]"
+            f"     [dim]FinBERT:[/dim] [blue]{self._sentiment_text}[/blue]"
         )
         return Panel(
             lines,
@@ -109,19 +115,15 @@ class CLIDashboard:
             padding=(0, 1),
         )
 
-    def _build_body(
-        self,
-        bids: list[tuple[float, float]],
-        asks: list[tuple[float, float]],
-    ) -> Columns:
+    def _build_body(self) -> Columns:
         """Render the side-by-side bid and ask depth tables."""
         return Columns(
-            [self._build_bid_table(bids), self._build_ask_table(asks)],
+            [self._build_bid_table(), self._build_ask_table()],
             equal=True,
             expand=True,
         )
 
-    def _build_bid_table(self, bids: list[tuple[float, float]]) -> Table:
+    def _build_bid_table(self) -> Table:
         """Build the green bids table for the top N price levels."""
         table = Table(
             title="[bold green] BIDS [/bold green]",
@@ -133,12 +135,12 @@ class CLIDashboard:
         table.add_column("Price (USDT)", style="green", justify="right")
         table.add_column("Volume (BTC)", style="bright_green", justify="right")
 
-        for price, volume in bids[:_BOOK_DEPTH]:
+        for price, volume in self._bids[:_BOOK_DEPTH]:
             table.add_row(f"{price:>14,.2f}", f"{volume:>14.6f}")
 
         return table
 
-    def _build_ask_table(self, asks: list[tuple[float, float]]) -> Table:
+    def _build_ask_table(self) -> Table:
         """Build the red asks table for the top N price levels."""
         table = Table(
             title="[bold red] ASKS [/bold red]",
@@ -150,7 +152,7 @@ class CLIDashboard:
         table.add_column("Price (USDT)", style="red", justify="right")
         table.add_column("Volume (BTC)", style="bright_red", justify="right")
 
-        for price, volume in asks[:_BOOK_DEPTH]:
+        for price, volume in self._asks[:_BOOK_DEPTH]:
             table.add_row(f"{price:>14,.2f}", f"{volume:>14.6f}")
 
         return table

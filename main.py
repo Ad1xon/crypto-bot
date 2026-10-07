@@ -70,6 +70,45 @@ def _register_sigterm(loop: asyncio.AbstractEventLoop, main_task: asyncio.Task) 
         pass
 
 
+async def _update_background_tasks(dashboard: CLIDashboard) -> None:
+    """Periodically fetch macro and sentiment data and update the dashboard."""
+    from quant_models.macro_filter import MacroCalendarFilter
+    from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
+
+    macro_filter = MacroCalendarFilter()
+    sentiment_analyzer = CryptoSentimentAnalyzer()
+
+    # Initial fetch
+    await macro_filter.fetch_events()
+
+    while True:
+        try:
+            # Update sentiment (takes a few seconds)
+            score = await sentiment_analyzer.update_sentiment()
+
+            # Re-fetch macro daily, but we can just check if we need to
+            if not macro_filter._last_fetch or macro_filter._last_fetch.day != asyncio.get_event_loop().time():
+                # For simplicity, fetch once on startup is okay for a daily thing.
+                pass
+
+            allowed = macro_filter.is_trading_allowed()
+            macro_status = "SAFE (Trading Allowed)" if allowed else "DANGER (Blackout)"
+
+            sentiment_str = (
+                f"Bull: {score.bullish_mentions} | Bear: {score.bearish_mentions} | Net: {score.net_score:.2f}"
+            )
+
+            dashboard.update_extras(sentiment=sentiment_str, macro=macro_status)
+
+            # Wait 5 minutes before updating sentiment again
+            await asyncio.sleep(300)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            _LOG.error("Background task error: %s", e)
+            await asyncio.sleep(60)
+
+
 async def _run() -> None:
     engine: ExecutionEngine = await _build_execution_engine()
     dashboard = CLIDashboard(symbol=SETTINGS.hyperliquid_ws.symbol)
@@ -78,9 +117,14 @@ async def _run() -> None:
         dashboard=dashboard,
         execution_engine=engine,
     )
+
+    # Start the background task
+    bg_task = asyncio.create_task(_update_background_tasks(dashboard))
+
     try:
         await streamer.start()
     finally:
+        bg_task.cancel()
         await streamer.stop()
         if isinstance(engine, CCXTBroker):
             await engine.close()
