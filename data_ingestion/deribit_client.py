@@ -22,7 +22,7 @@ import json
 import math
 import pathlib
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final
 
 import requests
@@ -84,9 +84,7 @@ def _parse_instrument(
         option_type = parts[3].upper()
         if option_type not in {"C", "P"}:
             return None
-        expiry_dt = datetime.strptime(parts[1].upper(), "%d%b%y").replace(
-            hour=8, minute=0, second=0, tzinfo=timezone.utc
-        )
+        expiry_dt = datetime.strptime(parts[1].upper(), "%d%b%y").replace(hour=8, minute=0, second=0, tzinfo=UTC)
         return strike, option_type, expiry_dt
     except (ValueError, IndexError):
         return None
@@ -135,7 +133,7 @@ def compute_gex(
     call_gex: dict[float, float] = {}
     put_gex: dict[float, float] = {}
     spot: float = 0.0
-    now_utc = datetime.now(tz=timezone.utc)
+    now_utc = datetime.now(tz=UTC)
 
     for item in summaries:
         instrument_name: str = item.get("instrument_name", "")
@@ -210,12 +208,12 @@ def main() -> None:
             summaries = fetch_book_summary()
             gex, spot = compute_gex(summaries)
             payload: dict = {
-                "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                "timestamp": datetime.now(tz=UTC).isoformat(),
                 "spot": spot,
                 "gex": gex,
             }
             write_atomic(payload, OUTPUT_FILE)
-            ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+            ts = datetime.now(UTC).strftime("%H:%M:%S")
             print(f"[{ts}] GEX snapshot written — {len(gex)} strikes, spot ≈ {spot:,.0f}")
 
         except requests.exceptions.HTTPError as exc:

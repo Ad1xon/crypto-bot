@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -14,7 +14,7 @@ async def test_macro_filter_logic():
     assert filter_.is_trading_allowed() is True
 
     # Let's manually inject an event happening now
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     with patch.object(filter_, "_fetch_sync") as mock_fetch:
         # Mock the live fetch returning an event for 'now'
@@ -40,7 +40,7 @@ async def test_live_signal_engine_macro_gate():
     from execution.live_engine import LiveSignalEngine
     from quant_models.super_confluence import ConfluenceVerdict
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     macro_filter = MacroCalendarFilter()
     macro_filter._events = [now]  # Active blackout
 

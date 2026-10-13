@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -124,7 +124,7 @@ class TickLogger:
         while True:
             try:
                 record = await asyncio.wait_for(queue.get(), timeout=self._flush_interval_s)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if batch:
                     await self._write_parquet(batch, record_type)
                     batch.clear()
@@ -156,7 +156,7 @@ class TickLogger:
         precision to prevent collisions between rapid successive flushes.
         """
         df = pd.DataFrame(batch)
-        ts_str: str = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")[:-3]
+        ts_str: str = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")[:-3]
         path: Path = self._data_dir / f"{record_type}_{self._symbol}_{ts_str}.parquet"
         try:
             await asyncio.to_thread(df.to_parquet, path, index=False, engine="pyarrow")

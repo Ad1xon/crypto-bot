@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class MacroCalendarFilter:
                     # We care primarily about USD high impact (red folder) events
                     if item.get("impact") == "High" and item.get("country") == "USD":
                         # Format is usually '2023-10-04T08:30:00-04:00'
-                        event_time = datetime.fromisoformat(item["date"]).astimezone(timezone.utc)
+                        event_time = datetime.fromisoformat(item["date"]).astimezone(UTC)
                         events.append(event_time)
         except Exception as e:
             logger.error("Failed to fetch macroeconomic calendar from %s: %s", _CALENDAR_URL, e)
@@ -41,7 +41,7 @@ class MacroCalendarFilter:
         events = await asyncio.to_thread(self._fetch_sync)
         if events:
             self._events = events
-            self._last_fetch = datetime.now(timezone.utc)
+            self._last_fetch = datetime.now(UTC)
             logger.info("Loaded %d high-impact USD events for this week.", len(self._events))
         else:
             logger.warning("No events loaded or fetch failed. Trading will not be blocked.")
@@ -52,12 +52,12 @@ class MacroCalendarFilter:
             return True
 
         if at_time is None:
-            check_time = datetime.now(timezone.utc)
+            check_time = datetime.now(UTC)
         elif isinstance(at_time, (int, float)):
             ts_s = at_time / 1000.0 if at_time > 1e11 else float(at_time)
-            check_time = datetime.fromtimestamp(ts_s, tz=timezone.utc)
+            check_time = datetime.fromtimestamp(ts_s, tz=UTC)
         else:
-            check_time = at_time.astimezone(timezone.utc) if at_time.tzinfo else at_time.replace(tzinfo=timezone.utc)
+            check_time = at_time.astimezone(UTC) if at_time.tzinfo else at_time.replace(tzinfo=UTC)
 
         for event_time in self._events:
             blackout_start = event_time - self.blackout_before

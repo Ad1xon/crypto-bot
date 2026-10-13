@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final
 
 import aiohttp
@@ -58,7 +57,7 @@ class DiscordAlerter:
             "title": title,
             "description": description,
             "color": color,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         if fields:
             embed["fields"] = fields
@@ -86,7 +85,7 @@ class DiscordAlerter:
                         title,
                         response.status,
                     )
-        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, aiohttp.ClientError) as exc:
             _LOG.error(
                 "[DISCORD ALERTER] Failed to deliver alert '%s' — %s",
                 title,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 import websockets
@@ -169,7 +169,7 @@ class HyperliquidStreamer(DataStreamer):
         if not self._auto_reset_cvd or timestamp_ms <= 0:
             return
 
-        trade_dt = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+        trade_dt = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=UTC)
         current_date = trade_dt.date()
 
         if self._last_cvd_date is not None and current_date > self._last_cvd_date:
