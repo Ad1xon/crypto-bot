@@ -43,6 +43,9 @@ class CCXTBroker(ExecutionEngine):
         risk_per_trade_pct: float = 0.01,
         base_sl_usdt_dist: float = 150.0,
         tp_usdt_dist: float = 300.0,
+        tp_pct: float | None = None,
+        sl_pct: float | None = None,
+        trailing_activation_pct: float | None = None,
         fee_rate: float = 0.0004,
         trailing_activation_usdt: float = 100.0,
         cooldown_s: float = 60.0,
@@ -72,6 +75,12 @@ class CCXTBroker(ExecutionEngine):
         self._risk_per_trade_pct: float = risk_per_trade_pct
         self._base_sl_usdt_dist: float = base_sl_usdt_dist
         self._tp_usdt_dist: float = tp_usdt_dist
+        self._tp_pct: float | None = tp_pct
+        self._sl_pct: float | None = sl_pct
+        self._trailing_activation_pct: float | None = trailing_activation_pct
+        self._active_sl_dist: float = base_sl_usdt_dist
+        self._active_tp_dist: float = tp_usdt_dist
+        self._active_activation_dist: float = trailing_activation_usdt
         self._fee_rate: float = fee_rate
         self._trailing_activation_usdt: float = trailing_activation_usdt
         self._cooldown_s: float = cooldown_s
@@ -219,8 +228,16 @@ class CCXTBroker(ExecutionEngine):
             return
 
         fee_coverage: float = self._entry_price * (self._fee_rate * 2.0)
-        sl_price_delta: float = self._base_sl_usdt_dist / self._position_btc
-        activation_price_delta: float = self._trailing_activation_usdt / self._position_btc
+        sl_price_delta: float = (
+            self._active_sl_dist
+            if self._sl_pct is not None or self._position_btc == 0.0
+            else self._active_sl_dist / self._position_btc
+        )
+        activation_price_delta: float = (
+            self._active_activation_dist
+            if self._trailing_activation_pct is not None or self._sl_pct is not None or self._position_btc == 0.0
+            else self._active_activation_dist / self._position_btc
+        )
 
         exit_side: str | None = None
 
@@ -229,7 +246,10 @@ class CCXTBroker(ExecutionEngine):
             if current_price >= self._entry_price + activation_price_delta:
                 dynamic_sl: float = current_price - sl_price_delta
                 self._current_local_sl_price = max(self._current_local_sl_price, true_be_price, dynamic_sl)
-            if current_price >= self._entry_price + self._tp_usdt_dist or current_price <= self._current_local_sl_price:
+            if (
+                current_price >= self._entry_price + self._active_tp_dist
+                or current_price <= self._current_local_sl_price
+            ):
                 exit_side = "sell"
 
         elif self._position == "SHORT":
@@ -237,7 +257,10 @@ class CCXTBroker(ExecutionEngine):
             if current_price <= self._entry_price - activation_price_delta:
                 dynamic_sl = current_price + sl_price_delta
                 self._current_local_sl_price = min(self._current_local_sl_price, true_be_price, dynamic_sl)
-            if current_price <= self._entry_price - self._tp_usdt_dist or current_price >= self._current_local_sl_price:
+            if (
+                current_price <= self._entry_price - self._active_tp_dist
+                or current_price >= self._current_local_sl_price
+            ):
                 exit_side = "buy"
 
         if exit_side is not None:
@@ -395,26 +418,45 @@ class CCXTBroker(ExecutionEngine):
             _LOG.error("[CCXT BROKER] Balance fetch returned zero — signal %s aborted.", signal_type)
             return
 
+        if self._sl_pct is not None:
+            effective_sl_dist: float = current_price * self._sl_pct
+            effective_tp_dist: float = current_price * (
+                self._tp_pct if self._tp_pct is not None else self._sl_pct * 2.0
+            )
+            effective_activation: float = (
+                current_price * self._trailing_activation_pct
+                if self._trailing_activation_pct is not None
+                else effective_tp_dist / 3.0
+            )
+        else:
+            effective_sl_dist = self._base_sl_usdt_dist
+            effective_tp_dist = self._tp_usdt_dist
+            effective_activation = self._trailing_activation_usdt
+
+        self._active_sl_dist = effective_sl_dist
+        self._active_tp_dist = effective_tp_dist
+        self._active_activation_dist = effective_activation
+
         multiplier: float = self._gex_multiplier(abs(gex_value))
         if self._position_sizer is not None:
             base_size_btc: float = self._position_sizer.calculate_position_btc(
                 account_balance_usdt=current_balance,
-                sl_distance_usdt=self._base_sl_usdt_dist,
+                sl_distance_usdt=effective_sl_dist,
                 gex_modifier=multiplier,
             )
         else:
             risk_capital: float = current_balance * self._risk_per_trade_pct
-            base_size_btc = (risk_capital / self._base_sl_usdt_dist) * multiplier
+            base_size_btc = (risk_capital / effective_sl_dist) * multiplier
 
         final_size_btc: float = float(self._exchange.amount_to_precision(self._symbol, base_size_btc))
 
         if signal_type == _BULLISH:
-            hard_sl_price: float = current_price - self._base_sl_usdt_dist
-            hard_tp_price: float = current_price + self._tp_usdt_dist
+            hard_sl_price: float = current_price - effective_sl_dist
+            hard_tp_price: float = current_price + effective_tp_dist
             direction: str = "LONG"
         elif signal_type == _BEARISH:
-            hard_sl_price = current_price + self._base_sl_usdt_dist
-            hard_tp_price = current_price - self._tp_usdt_dist
+            hard_sl_price = current_price + effective_sl_dist
+            hard_tp_price = current_price - effective_tp_dist
             direction = "SHORT"
         else:
             _LOG.warning("[CCXT BROKER] Unknown signal type '%s' — no order placed.", signal_type)

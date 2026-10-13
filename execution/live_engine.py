@@ -49,6 +49,9 @@ class PaperTrader(ExecutionEngine):
         tp_usdt: float = 300.0,
         sl_usdt: float = 150.0,
         trailing_activation_usdt: float = 100.0,
+        tp_pct: float | None = None,
+        sl_pct: float | None = None,
+        trailing_activation_pct: float | None = None,
         fee_rate: float = 0.0004,
         cooldown_s: float = 60.0,
         slippage_bps: float = 2.0,
@@ -61,6 +64,12 @@ class PaperTrader(ExecutionEngine):
         self._tp_usdt: float = tp_usdt
         self._sl_usdt: float = sl_usdt
         self._trailing_activation_usdt: float = trailing_activation_usdt
+        self._tp_pct: float | None = tp_pct
+        self._sl_pct: float | None = sl_pct
+        self._trailing_activation_pct: float | None = trailing_activation_pct
+        self._active_tp_dist: float = tp_usdt
+        self._active_sl_dist: float = sl_usdt
+        self._active_activation_dist: float = trailing_activation_usdt
         self._fee_rate: float = fee_rate
         self._cooldown_s: float = cooldown_s
         self._slippage_bps: float = slippage_bps
@@ -94,9 +103,9 @@ class PaperTrader(ExecutionEngine):
 
     def _build_state_dict(self) -> dict[str, Any]:
         if self._position == "LONG":
-            tp_price: float = self._entry_price + self._tp_usdt
+            tp_price: float = self._entry_price + self._active_tp_dist
         elif self._position == "SHORT":
-            tp_price = self._entry_price - self._tp_usdt
+            tp_price = self._entry_price - self._active_tp_dist
         else:
             tp_price = 0.0
 
@@ -227,10 +236,25 @@ class PaperTrader(ExecutionEngine):
         else:
             self._entry_price = price * (1.0 - slip_factor)
 
+        if self._sl_pct is not None:
+            self._active_sl_dist = self._entry_price * self._sl_pct
+            self._active_tp_dist = self._entry_price * (
+                self._tp_pct if self._tp_pct is not None else self._sl_pct * 2.0
+            )
+            self._active_activation_dist = (
+                self._entry_price * self._trailing_activation_pct
+                if self._trailing_activation_pct is not None
+                else self._active_tp_dist / 3.0
+            )
+        else:
+            self._active_sl_dist = self._sl_usdt
+            self._active_tp_dist = self._tp_usdt
+            self._active_activation_dist = self._trailing_activation_usdt
+
         if self._position_sizer is not None:
             self._position_btc = self._position_sizer.calculate_position_btc(
                 account_balance_usdt=self._balance,
-                sl_distance_usdt=self._sl_usdt,
+                sl_distance_usdt=self._active_sl_dist,
             )
             actual_size_usdt: float = self._position_btc * self._entry_price
         else:
@@ -241,12 +265,14 @@ class PaperTrader(ExecutionEngine):
         self._balance -= self._entry_fee
 
         if self._position == "LONG":
-            self._current_sl_price = self._entry_price - self._sl_usdt
+            self._current_sl_price = self._entry_price - self._active_sl_dist
         else:
-            self._current_sl_price = self._entry_price + self._sl_usdt
+            self._current_sl_price = self._entry_price + self._active_sl_dist
 
         tp_level: float = (
-            self._entry_price + self._tp_usdt if self._position == "LONG" else self._entry_price - self._tp_usdt
+            self._entry_price + self._active_tp_dist
+            if self._position == "LONG"
+            else self._entry_price - self._active_tp_dist
         )
         _LOG.warning(
             "[PAPER TRADE ENTRY] Opened %s at $%s (mkt $%s, slip %.1fbps) | "
@@ -270,16 +296,24 @@ class PaperTrader(ExecutionEngine):
         Evaluation order: trailing update → TP → SL.
         """
         fee_coverage: float = self._entry_price * (self._fee_rate * 2.0)
-        sl_price_delta: float = self._sl_usdt / self._position_btc
-        activation_price_delta: float = self._trailing_activation_usdt / self._position_btc
+        sl_price_delta: float = (
+            self._active_sl_dist
+            if self._sl_pct is not None or self._position_btc == 0.0
+            else self._active_sl_dist / self._position_btc
+        )
+        activation_price_delta: float = (
+            self._active_activation_dist
+            if self._trailing_activation_pct is not None or self._sl_pct is not None or self._position_btc == 0.0
+            else self._active_activation_dist / self._position_btc
+        )
 
         if self._position == "LONG":
             true_be_price: float = self._entry_price + fee_coverage
             if price >= self._entry_price + activation_price_delta:
                 dynamic_sl: float = price - sl_price_delta
                 self._current_sl_price = max(self._current_sl_price, true_be_price, dynamic_sl)
-            if price >= self._entry_price + self._tp_usdt:
-                return ("TP", self._entry_price + self._tp_usdt)
+            if price >= self._entry_price + self._active_tp_dist:
+                return ("TP", self._entry_price + self._active_tp_dist)
             if price <= self._current_sl_price:
                 return ("SL", self._current_sl_price)
 
@@ -288,8 +322,8 @@ class PaperTrader(ExecutionEngine):
             if price <= self._entry_price - activation_price_delta:
                 dynamic_sl = price + sl_price_delta
                 self._current_sl_price = min(self._current_sl_price, true_be_price, dynamic_sl)
-            if price <= self._entry_price - self._tp_usdt:
-                return ("TP", self._entry_price - self._tp_usdt)
+            if price <= self._entry_price - self._active_tp_dist:
+                return ("TP", self._entry_price - self._active_tp_dist)
             if price >= self._current_sl_price:
                 return ("SL", self._current_sl_price)
 

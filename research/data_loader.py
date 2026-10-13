@@ -83,3 +83,21 @@ def load_merged_frame(data_dir: pathlib.Path = _DEFAULT_DATA_DIR, include_vwap: 
         on="timestamp_ms",
         direction="backward",
     )
+
+
+def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Calculate Average True Range (ATR) from OHLC or price time-series.
+
+    If standard 'high', 'low', 'close' columns are present, uses exact True Range.
+    Otherwise derives True Range from sequential price differences.
+    """
+    high = df["high"] if "high" in df.columns else df["price"]
+    low = df["low"] if "low" in df.columns else df["price"]
+    close = df["close"] if "close" in df.columns else df["price"]
+
+    prev_close = close.shift(1).fillna(close)
+    tr1 = (high - low).abs()
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.rolling(window=period, min_periods=1).mean()

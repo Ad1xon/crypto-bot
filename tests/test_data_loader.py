@@ -47,3 +47,19 @@ def test_load_merged_frame(tmp_path: pathlib.Path):
     assert "price" in merged.columns
     assert merged.iloc[0]["price"] == 50000.0
     assert merged.iloc[1]["price"] == 50100.0
+
+
+def test_calculate_atr():
+    from research.data_loader import calculate_atr
+
+    df = pd.DataFrame(
+        {
+            "high": [105.0, 108.0, 110.0, 107.0],
+            "low": [100.0, 102.0, 104.0, 101.0],
+            "close": [104.0, 107.0, 105.0, 102.0],
+        }
+    )
+    atr = calculate_atr(df, period=3)
+    assert len(atr) == 4
+    assert not atr.isna().any()
+    assert atr.iloc[-1] > 0.0

@@ -55,9 +55,12 @@ class TradeConfig:
     position_size_usdt: float = 1_000.0
     take_profit_usdt: float = 300.0
     stop_loss_usdt: float = 150.0
+    tp_pct: float | None = None
+    sl_pct: float | None = None
     fee_rate: float = 0.0004
     cooldown_ms: int = 60_000
     trailing_activation_usdt: float = 100.0
+    trailing_activation_pct: float | None = None
     max_duration_s: int = 1800
 
 
@@ -145,6 +148,10 @@ class BacktestEngine:
         self._cooldown_until_ms: int = 0
         self._next_trade_id: int = 1
 
+        self._active_tp_dist: float = config.take_profit_usdt
+        self._active_sl_dist: float = config.stop_loss_usdt
+        self._active_activation: float = config.trailing_activation_usdt
+
         self._trade_records: list[TradeRecord] = []
         self._equity_curve: list[float] = [config.initial_balance]
 
@@ -188,21 +195,21 @@ class BacktestEngine:
         if elapsed_s >= self._config.max_duration_s:
             return ("TIME_EXIT", price)
 
-        tp_usdt: float = self._config.take_profit_usdt
-        activation: float = self._config.trailing_activation_usdt
+        tp_dist: float = self._active_tp_dist
+        activation: float = self._active_activation
 
         if self._position == "LONG":
             if price >= self._entry_price + activation:
                 self._current_sl_price = max(self._current_sl_price, self._entry_price)
-            if price >= self._entry_price + tp_usdt:
-                return ("TP", self._entry_price + tp_usdt)
+            if price >= self._entry_price + tp_dist:
+                return ("TP", self._entry_price + tp_dist)
             if price <= self._current_sl_price:
                 return ("SL", self._current_sl_price)
         elif self._position == "SHORT":
             if price <= self._entry_price - activation:
                 self._current_sl_price = min(self._current_sl_price, self._entry_price)
-            if price <= self._entry_price - tp_usdt:
-                return ("TP", self._entry_price - tp_usdt)
+            if price <= self._entry_price - tp_dist:
+                return ("TP", self._entry_price - tp_dist)
             if price >= self._current_sl_price:
                 return ("SL", self._current_sl_price)
         return None
@@ -215,10 +222,26 @@ class BacktestEngine:
         self._position_btc = self._config.position_size_usdt / price
         self._entry_fee = self._config.fee_rate * self._config.position_size_usdt
         self._balance -= self._entry_fee
-        if self._position == "LONG":
-            self._current_sl_price = price - self._config.stop_loss_usdt
+
+        if self._config.sl_pct is not None:
+            self._active_sl_dist = price * self._config.sl_pct
+            self._active_tp_dist = price * (
+                self._config.tp_pct if self._config.tp_pct is not None else self._config.sl_pct * 2.0
+            )
+            self._active_activation = (
+                price * self._config.trailing_activation_pct
+                if self._config.trailing_activation_pct is not None
+                else self._active_tp_dist / 3.0
+            )
         else:
-            self._current_sl_price = price + self._config.stop_loss_usdt
+            self._active_sl_dist = self._config.stop_loss_usdt
+            self._active_tp_dist = self._config.take_profit_usdt
+            self._active_activation = self._config.trailing_activation_usdt
+
+        if self._position == "LONG":
+            self._current_sl_price = price - self._active_sl_dist
+        else:
+            self._current_sl_price = price + self._active_sl_dist
 
     def _close_position(
         self,

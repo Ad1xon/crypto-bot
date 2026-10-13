@@ -58,3 +58,32 @@ def test_backtest_engine_basic_long_tp():
     assert records[0].outcome == "TP"
     assert records[0].net_pnl > 0
     assert records[0].exit_price == 50100.0
+
+
+def test_backtest_engine_percentage_tp_sl():
+    # 1% TP (500 pts at 50,000), 0.5% SL (250 pts)
+    config = TradeConfig(
+        initial_balance=10000.0,
+        position_size_usdt=1000.0,
+        tp_pct=0.01,
+        sl_pct=0.005,
+        fee_rate=0.0,
+        cooldown_ms=0,
+    )
+    gex = GexRiskManager(gex_map={})
+    confluence = DummyConfluence()
+    signal_map = {1000: "BULLISH_ABSORPTION"}
+
+    engine = BacktestEngine(config, signal_map, gex, confluence)
+
+    # Tick 1: Trigger entry at 50,000
+    engine.process_tick(DummyTick(1000, 50000.0, 50000.0))
+    assert engine.has_open_position
+
+    # Tick 2: Price goes to 50,500 (+1% TP hit)
+    engine.process_tick(DummyTick(2000, 50500.0, 50000.0))
+    assert not engine.has_open_position
+    records = engine.trade_records
+    assert len(records) == 1
+    assert records[0].outcome == "TP"
+    assert records[0].exit_price == 50500.0
