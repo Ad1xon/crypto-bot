@@ -5,6 +5,7 @@ from quant_models.super_confluence import ConfluenceVerdict, SuperConfluenceFilt
 from research.event_backtester import (
     BacktestEngine,
     TradeConfig,
+    TradeRecord,
     compute_performance_report,
 )
 
@@ -87,3 +88,67 @@ def test_backtest_engine_percentage_tp_sl():
     assert len(records) == 1
     assert records[0].outcome == "TP"
     assert records[0].exit_price == 50500.0
+
+
+def test_compute_performance_report_quant_metrics():
+    config = TradeConfig(initial_balance=10000.0)
+    now = pd.Timestamp.now(tz="UTC")
+
+    r1 = TradeRecord(
+        trade_id=1,
+        direction="LONG",
+        entry_time=now,
+        exit_time=now,
+        entry_price=50000.0,
+        exit_price=50100.0,
+        position_btc=0.02,
+        gross_pnl=20.0,
+        total_fees=2.0,
+        net_pnl=18.0,
+        outcome="TP",
+        duration_s=60.0,
+        balance_after=10018.0,
+    )
+    r2 = TradeRecord(
+        trade_id=2,
+        direction="SHORT",
+        entry_time=now,
+        exit_time=now,
+        entry_price=50100.0,
+        exit_price=50150.0,
+        position_btc=0.02,
+        gross_pnl=-10.0,
+        total_fees=2.0,
+        net_pnl=-12.0,
+        outcome="SL",
+        duration_s=40.0,
+        balance_after=10006.0,
+    )
+    r3 = TradeRecord(
+        trade_id=3,
+        direction="LONG",
+        entry_time=now,
+        exit_time=now,
+        entry_price=50000.0,
+        exit_price=50200.0,
+        position_btc=0.02,
+        gross_pnl=40.0,
+        total_fees=2.0,
+        net_pnl=38.0,
+        outcome="TP",
+        duration_s=120.0,
+        balance_after=10044.0,
+    )
+
+    records = [r1, r2, r3]
+    equity_curve = [10000.0, 10018.0, 10006.0, 10044.0]
+    report = compute_performance_report(records, equity_curve, config)
+
+    assert report.total_trades == 3
+    assert report.winning_trades == 2
+    assert report.losing_trades == 1
+    assert report.net_pnl == 44.0
+    assert report.sharpe_ratio > 0.0
+    assert report.sortino_ratio > 0.0
+    assert report.calmar_ratio > 0.0
+    assert report.win_loss_ratio > 1.0  # Avg win (28) / Avg loss (12) > 2

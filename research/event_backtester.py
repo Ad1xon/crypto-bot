@@ -23,6 +23,7 @@ Usage (from project root)
 from __future__ import annotations
 
 import argparse
+import math
 import pathlib
 import sys
 from dataclasses import dataclass
@@ -103,6 +104,10 @@ class PerformanceReport:
     avg_win_usdt: float
     avg_loss_usdt: float
     avg_duration_s: float
+    sharpe_ratio: float = 0.0
+    sortino_ratio: float = 0.0
+    calmar_ratio: float = 0.0
+    win_loss_ratio: float = 0.0
 
 
 class _TickRow(Protocol):
@@ -347,6 +352,48 @@ def compute_performance_report(
 
     net_pnl: float = sum(r.net_pnl for r in records)
     final_balance: float = equity_curve[-1]
+    return_pct: float = net_pnl / config.initial_balance * 100
+    max_drawdown_usdt: float = float(drawdown_usdt.max())
+    max_drawdown_pct: float = float(drawdown_pct.max())
+    avg_win: float = gross_profit / len(wins) if wins else 0.0
+    avg_loss: float = -(gross_loss / len(losses)) if losses else 0.0
+
+    net_pnls: list[float] = [r.net_pnl for r in records]
+    avg_pnl: float = net_pnl / len(records)
+
+    # Sharpe ratio (per-trade return / std of returns)
+    if len(records) > 1:
+        variance: float = sum((p - avg_pnl) ** 2 for p in net_pnls) / (len(records) - 1)
+        std_pnl: float = math.sqrt(variance)
+        sharpe_ratio: float = avg_pnl / std_pnl if std_pnl > 0 else 0.0
+    else:
+        sharpe_ratio = 0.0
+
+    # Sortino ratio (trade returns penalising only downside variance)
+    neg_pnls: list[float] = [p for p in net_pnls if p < 0]
+    if neg_pnls:
+        downside_std: float = math.sqrt(sum(p**2 for p in neg_pnls) / len(records))
+        sortino_ratio: float = avg_pnl / downside_std if downside_std > 0 else 0.0
+    elif avg_pnl > 0:
+        sortino_ratio = float("inf")
+    else:
+        sortino_ratio = 0.0
+
+    # Calmar ratio (return_pct / max_drawdown_pct)
+    if max_drawdown_pct > 0:
+        calmar_ratio: float = return_pct / max_drawdown_pct
+    elif return_pct > 0:
+        calmar_ratio = float("inf")
+    else:
+        calmar_ratio = 0.0
+
+    # Win / Loss ratio (payoff ratio: average win vs average loss)
+    if avg_loss < 0:
+        win_loss_ratio: float = abs(avg_win / avg_loss)
+    elif avg_win > 0:
+        win_loss_ratio = float("inf")
+    else:
+        win_loss_ratio = 0.0
 
     return PerformanceReport(
         initial_balance=config.initial_balance,
@@ -359,12 +406,16 @@ def compute_performance_report(
         gross_loss=gross_loss,
         profit_factor=profit_factor,
         net_pnl=net_pnl,
-        return_pct=net_pnl / config.initial_balance * 100,
-        max_drawdown_usdt=float(drawdown_usdt.max()),
-        max_drawdown_pct=float(drawdown_pct.max()),
-        avg_win_usdt=gross_profit / len(wins) if wins else 0.0,
-        avg_loss_usdt=-(gross_loss / len(losses)) if losses else 0.0,
+        return_pct=return_pct,
+        max_drawdown_usdt=max_drawdown_usdt,
+        max_drawdown_pct=max_drawdown_pct,
+        avg_win_usdt=avg_win,
+        avg_loss_usdt=avg_loss,
         avg_duration_s=sum(r.duration_s for r in records) / len(records),
+        sharpe_ratio=sharpe_ratio,
+        sortino_ratio=sortino_ratio,
+        calmar_ratio=calmar_ratio,
+        win_loss_ratio=win_loss_ratio,
     )
 
 
@@ -424,6 +475,14 @@ def _render_performance_panel(report: PerformanceReport) -> None:
     net_color: str = "bold green" if report.net_pnl >= 0 else "bold red"
     pf_color: str = "bold green" if report.profit_factor >= 1 else "bold red"
     wr_color: str = "bold green" if report.win_rate_pct >= 50 else "bold red"
+    sharpe_str: str = f"{report.sharpe_ratio:.3f}" if report.sharpe_ratio != float("inf") else "INF"
+    sortino_str: str = f"{report.sortino_ratio:.3f}" if report.sortino_ratio != float("inf") else "INF"
+    calmar_str: str = f"{report.calmar_ratio:.3f}" if report.calmar_ratio != float("inf") else "INF"
+    wl_str: str = f"{report.win_loss_ratio:.3f}" if report.win_loss_ratio != float("inf") else "INF"
+    sharpe_color: str = "bold green" if report.sharpe_ratio > 0 else "bold red"
+    sortino_color: str = "bold green" if report.sortino_ratio > 0 else "bold red"
+    calmar_color: str = "bold green" if report.calmar_ratio > 0 else "bold red"
+    wl_color: str = "bold green" if report.win_loss_ratio >= 1 else "bold red"
 
     table = Table(
         box=box.SIMPLE_HEAVY,
@@ -449,6 +508,11 @@ def _render_performance_panel(report: PerformanceReport) -> None:
         ("Gross Profit", f"[green]${report.gross_profit:,.4f}[/green]"),
         ("Gross Loss", f"[red]${report.gross_loss:,.4f}[/red]"),
         ("Profit Factor", f"[{pf_color}]{pf_str}[/{pf_color}]"),
+        ("Win / Loss Ratio", f"[{wl_color}]{wl_str}[/{wl_color}]"),
+        ("", ""),
+        ("Sharpe Ratio (per-trade)", f"[{sharpe_color}]{sharpe_str}[/{sharpe_color}]"),
+        ("Sortino Ratio", f"[{sortino_color}]{sortino_str}[/{sortino_color}]"),
+        ("Calmar Ratio", f"[{calmar_color}]{calmar_str}[/{calmar_color}]"),
         ("", ""),
         ("Avg Win", f"[green]${report.avg_win_usdt:,.4f}[/green]"),
         ("Avg Loss", f"[red]${report.avg_loss_usdt:,.4f}[/red]"),
