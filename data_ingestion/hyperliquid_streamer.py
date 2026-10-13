@@ -17,6 +17,7 @@ from data_ingestion.tick_logger import TickLogger
 from execution.interfaces import ExecutionEngine
 from execution.live_engine import LiveSignalEngine
 from quant_models.gex_risk_manager import GexRiskManager
+from quant_models.macro_filter import MacroCalendarFilter
 from quant_models.smc_detectors import MicrostructureDetector
 from visualizer.cli_dashboard import CLIDashboard
 
@@ -31,6 +32,7 @@ class HyperliquidStreamer(DataStreamer):
         config: AppConfig = SETTINGS,
         dashboard: CLIDashboard | None = None,
         execution_engine: ExecutionEngine | None = None,
+        macro_filter: MacroCalendarFilter | None = None,
         auto_reset_cvd: bool = True,
     ) -> None:
         self._config = config
@@ -52,6 +54,7 @@ class HyperliquidStreamer(DataStreamer):
             detector=MicrostructureDetector(divergence_window=100),
             gex_manager=GexRiskManager(),
             execution_engine=execution_engine,
+            macro_filter=macro_filter,
         )
         # Hyperliquid subscriptions
         self._subscribe_payload = json.dumps(

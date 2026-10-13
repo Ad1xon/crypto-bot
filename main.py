@@ -16,6 +16,7 @@ from data_ingestion.hyperliquid_streamer import HyperliquidStreamer
 from execution.ccxt_broker import CCXTBroker
 from execution.interfaces import ExecutionEngine
 from execution.live_engine import PaperTrader
+from quant_models.macro_filter import MacroCalendarFilter
 from visualizer.cli_dashboard import CLIDashboard
 
 _LOG: logging.Logger = logging.getLogger(__name__)
@@ -70,26 +71,16 @@ def _register_sigterm(loop: asyncio.AbstractEventLoop, main_task: asyncio.Task) 
         pass
 
 
-async def _update_background_tasks(dashboard: CLIDashboard) -> None:
+async def _update_background_tasks(dashboard: CLIDashboard, macro_filter: MacroCalendarFilter) -> None:
     """Periodically fetch macro and sentiment data and update the dashboard."""
-    from quant_models.macro_filter import MacroCalendarFilter
     from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
 
-    macro_filter = MacroCalendarFilter()
     sentiment_analyzer = CryptoSentimentAnalyzer()
-
-    # Initial fetch
-    await macro_filter.fetch_events()
 
     while True:
         try:
             # Update sentiment (takes a few seconds)
             score = await sentiment_analyzer.update_sentiment()
-
-            # Re-fetch macro daily, but we can just check if we need to
-            if not macro_filter._last_fetch or macro_filter._last_fetch.day != asyncio.get_event_loop().time():
-                # For simplicity, fetch once on startup is okay for a daily thing.
-                pass
 
             allowed = macro_filter.is_trading_allowed()
             macro_status = "SAFE (Trading Allowed)" if allowed else "DANGER (Blackout)"
@@ -110,16 +101,20 @@ async def _update_background_tasks(dashboard: CLIDashboard) -> None:
 
 
 async def _run() -> None:
+    macro_filter = MacroCalendarFilter()
+    await macro_filter.fetch_events()
+
     engine: ExecutionEngine = await _build_execution_engine()
     dashboard = CLIDashboard(symbol=SETTINGS.hyperliquid_ws.symbol)
     streamer = HyperliquidStreamer(
         config=SETTINGS,
         dashboard=dashboard,
         execution_engine=engine,
+        macro_filter=macro_filter,
     )
 
     # Start the background task
-    bg_task = asyncio.create_task(_update_background_tasks(dashboard))
+    bg_task = asyncio.create_task(_update_background_tasks(dashboard, macro_filter))
 
     try:
         await streamer.start()

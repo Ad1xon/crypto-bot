@@ -46,16 +46,23 @@ class MacroCalendarFilter:
         else:
             logger.warning("No events loaded or fetch failed. Trading will not be blocked.")
 
-    def is_trading_allowed(self) -> bool:
-        """Check if current time is outside any blackout windows."""
+    def is_trading_allowed(self, at_time: datetime | float | None = None) -> bool:
+        """Check if target time (or current UTC time) is outside any blackout windows."""
         if not self._events:
             return True
 
-        now = datetime.now(timezone.utc)
+        if at_time is None:
+            check_time = datetime.now(timezone.utc)
+        elif isinstance(at_time, (int, float)):
+            ts_s = at_time / 1000.0 if at_time > 1e11 else float(at_time)
+            check_time = datetime.fromtimestamp(ts_s, tz=timezone.utc)
+        else:
+            check_time = at_time.astimezone(timezone.utc) if at_time.tzinfo else at_time.replace(tzinfo=timezone.utc)
+
         for event_time in self._events:
             blackout_start = event_time - self.blackout_before
             blackout_end = event_time + self.blackout_after
-            if blackout_start <= now <= blackout_end:
-                logger.info("Trading paused: Currently within blackout window of macro event at %s", event_time)
+            if blackout_start <= check_time <= blackout_end:
+                logger.info("Trading paused: Within blackout window of macro event at %s", event_time)
                 return False
         return True

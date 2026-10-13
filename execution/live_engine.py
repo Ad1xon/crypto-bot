@@ -19,6 +19,7 @@ import pandas as pd
 
 from execution.interfaces import ExecutionEngine
 from quant_models.gex_risk_manager import GexRiskManager
+from quant_models.macro_filter import MacroCalendarFilter
 from quant_models.smc_detectors import MicrostructureDetector
 from quant_models.super_confluence import (
     ConfluenceVerdict,
@@ -337,6 +338,7 @@ class LiveSignalEngine:
         confluence: SuperConfluenceFilter | None = None,
         session_vwap: SessionVwap | None = None,
         execution_engine: ExecutionEngine | None = None,
+        macro_filter: MacroCalendarFilter | None = None,
     ) -> None:
         self._detector: MicrostructureDetector = (
             detector if detector is not None else MicrostructureDetector(divergence_window=100)
@@ -345,6 +347,7 @@ class LiveSignalEngine:
         self._confluence: SuperConfluenceFilter = confluence if confluence is not None else SuperConfluenceFilter()
         self._session_vwap: SessionVwap = session_vwap if session_vwap is not None else SessionVwap()
         self.execution_engine: ExecutionEngine = execution_engine if execution_engine is not None else PaperTrader()
+        self._macro_filter: MacroCalendarFilter | None = macro_filter
         self._window: collections.deque[dict] = collections.deque(maxlen=_DEQUE_MAXLEN)
         self._tick_task: asyncio.Task[None] | None = None
         self._signal_task: asyncio.Task[None] | None = None
@@ -440,6 +443,14 @@ class LiveSignalEngine:
             )
 
         if verdict.allowed:
+            if self._macro_filter is not None and not self._macro_filter.is_trading_allowed(timestamp_ms):
+                _LOG.warning(
+                    "[LIVE SIGNAL] %s at $%.2f REJECTED by MacroCalendarFilter (within high-impact blackout window).",
+                    signal_type,
+                    signal_price,
+                )
+                return
+
             self._signal_task = asyncio.create_task(
                 self.execution_engine.execute_signal(
                     signal_type,
