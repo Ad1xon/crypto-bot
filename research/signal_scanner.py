@@ -30,62 +30,9 @@ from rich.table import Table
 from rich.text import Text
 
 from quant_models.smc_detectors import MicrostructureDetector
+from research.data_loader import load_merged_frame
 
 _CONSOLE: Final[Console] = Console()
-
-
-def _load_parquet_glob(data_dir: pathlib.Path, prefix: str) -> pd.DataFrame:
-    """Concatenate every Parquet file whose name starts with *prefix*.
-
-    Files are sorted by filename (which encodes a UTC timestamp suffix) so
-    they are concatenated in chronological order.  The result is re-sorted
-    by ``timestamp_ms`` and returned with a clean integer index.
-
-    Raises ``FileNotFoundError`` when no matching files exist in *data_dir*.
-    """
-    files: list[pathlib.Path] = sorted(data_dir.glob(f"{prefix}_*.parquet"))
-    if not files:
-        raise FileNotFoundError(f"No Parquet files with prefix '{prefix}' found in '{data_dir}'")
-    return (
-        pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
-        .sort_values("timestamp_ms", kind="stable")
-        .reset_index(drop=True)
-    )
-
-
-def load_merged_frame(data_dir: pathlib.Path) -> pd.DataFrame:
-    """Build a merged BBO + Trade DataFrame aligned by timestamp.
-
-    Pipeline:
-
-    1. Load all trade Parquet files; compute the running signed CVD as
-       ``cumsum`` of ``+qty`` (taker buy) / ``-qty`` (taker sell).
-    2. Load all BBO Parquet files; filter warmup rows where
-       ``best_ask_price == 0`` (arrives before the local book is populated).
-    3. Align via ``pd.merge_asof`` (BBO left, trades right, backward fill)
-       so every 100 ms BBO tick is enriched with the most recent trade
-       price and running CVD.
-
-    Returns a DataFrame at 100 ms cadence containing the columns:
-    ``timestamp_ms``, ``dt``, ``best_bid_price``, ``best_ask_price``,
-    ``best_bid_qty``, ``best_ask_qty``, ``spread``, ``ofi``, ``price``,
-    ``cvd``.
-    """
-    trades: pd.DataFrame = _load_parquet_glob(data_dir, "trades")
-    trades["signed_qty"] = trades["qty"].where(~trades["is_buyer_maker"], -trades["qty"])
-    trades["cvd"] = trades["signed_qty"].cumsum()
-    trades["dt"] = pd.to_datetime(trades["timestamp_ms"], unit="ms", utc=True)
-
-    bbo: pd.DataFrame = _load_parquet_glob(data_dir, "bbo")
-    bbo = bbo[bbo["best_ask_price"] > 0].reset_index(drop=True)
-    bbo["dt"] = pd.to_datetime(bbo["timestamp_ms"], unit="ms", utc=True)
-
-    return pd.merge_asof(
-        bbo,
-        trades[["timestamp_ms", "price", "cvd"]],
-        on="timestamp_ms",
-        direction="backward",
-    )
 
 
 def _render_summary(

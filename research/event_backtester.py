@@ -40,6 +40,7 @@ from rich.table import Table
 from quant_models.gex_risk_manager import GexRiskManager, load_gex_map_from_file
 from quant_models.smc_detectors import MicrostructureDetector
 from quant_models.super_confluence import SuperConfluenceFilter
+from research.data_loader import load_merged_frame
 
 _CONSOLE: Final[Console] = Console()
 _DATA_DIR: Final[pathlib.Path] = pathlib.Path("data")
@@ -275,52 +276,6 @@ class BacktestEngine:
     def has_open_position(self) -> bool:
         """True if a position is still open at end of data."""
         return self._position is not None
-
-
-def _load_parquet_glob(data_dir: pathlib.Path, prefix: str) -> pd.DataFrame:
-    """Concatenate all Parquet files matching ``prefix_*.parquet``."""
-    files: list[pathlib.Path] = sorted(data_dir.glob(f"{prefix}_*.parquet"))
-    if not files:
-        raise FileNotFoundError(f"No Parquet files with prefix '{prefix}' in '{data_dir}'")
-    return (
-        pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
-        .sort_values("timestamp_ms", kind="stable")
-        .reset_index(drop=True)
-    )
-
-
-def load_merged_frame(data_dir: pathlib.Path) -> pd.DataFrame:
-    """Build the merged BBO + Trade DataFrame at 100 ms cadence."""
-    trades: pd.DataFrame = _load_parquet_glob(data_dir, "trades")
-    trades["signed_qty"] = trades["qty"].where(~trades["is_buyer_maker"], -trades["qty"])
-    trades["cvd"] = trades["signed_qty"].cumsum()
-    trades["dt"] = pd.to_datetime(trades["timestamp_ms"], unit="ms", utc=True)
-
-    vol_col: str = next(
-        (c for c in ("qty", "q", "volume") if c in trades.columns),
-        None,  # type: ignore[arg-type]
-    )
-    if vol_col is None and "price" in trades.columns and "quote_qty" in trades.columns:
-        trades["_vol"] = trades["quote_qty"].abs() / trades["price"]
-        vol_col = "_vol"
-    elif vol_col is None:
-        trades["_vol"] = trades["price"].abs() * 0 + 1
-        vol_col = "_vol"
-
-    cum_pv: pd.Series = (trades["price"] * trades[vol_col]).cumsum()
-    cum_v: pd.Series = trades[vol_col].cumsum()
-    trades["vwap"] = cum_pv / cum_v
-
-    bbo: pd.DataFrame = _load_parquet_glob(data_dir, "bbo")
-    bbo = bbo[bbo["best_ask_price"] > 0].reset_index(drop=True)
-    bbo["dt"] = pd.to_datetime(bbo["timestamp_ms"], unit="ms", utc=True)
-
-    return pd.merge_asof(
-        bbo,
-        trades[["timestamp_ms", "price", "cvd", "vwap"]],
-        on="timestamp_ms",
-        direction="backward",
-    )
 
 
 def compute_performance_report(
