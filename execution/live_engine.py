@@ -18,6 +18,7 @@ from typing import Any, Final
 import pandas as pd
 
 from execution.interfaces import ExecutionEngine
+from execution.signal_logger import SignalAuditLogger
 from quant_models.gex_risk_manager import GexRiskManager
 from quant_models.macro_filter import MacroCalendarFilter
 from quant_models.position_sizer import PositionSizer
@@ -57,6 +58,7 @@ class PaperTrader(ExecutionEngine):
         slippage_bps: float = 2.0,
         max_daily_loss_usdt: float = 500.0,
         position_sizer: PositionSizer | None = None,
+        audit_logger: SignalAuditLogger | None = None,
         state_file: pathlib.Path = pathlib.Path("data/paper_state.json"),
     ) -> None:
         self._balance: float = balance
@@ -75,6 +77,7 @@ class PaperTrader(ExecutionEngine):
         self._slippage_bps: float = slippage_bps
         self._max_daily_loss_usdt: float = max_daily_loss_usdt
         self._position_sizer: PositionSizer | None = position_sizer
+        self._audit_logger: SignalAuditLogger | None = audit_logger
 
         self._position: str | None = None
         self._entry_price: float = 0.0
@@ -287,6 +290,14 @@ class PaperTrader(ExecutionEngine):
             f"{self._current_sl_price:,.2f}",
             f"{self._balance:,.2f}",
         )
+        if self._audit_logger is not None and self._position is not None:
+            self._audit_logger.log_trade_entry(
+                timestamp_ms=int(time.time() * 1000),
+                direction=self._position,
+                entry_price=self._entry_price,
+                size_btc=self._position_btc,
+                balance_after=self._balance,
+            )
 
     def _evaluate_exit(self, price: float) -> tuple[str, float] | None:
         """Return ``(outcome, fill_price)`` if any TP/SL level is breached, else None.
@@ -362,6 +373,19 @@ class PaperTrader(ExecutionEngine):
             f"{self._balance:,.4f}",
         )
 
+        if self._audit_logger is not None and self._position is not None:
+            self._audit_logger.log_trade_exit(
+                timestamp_ms=int(current_time * 1000),
+                direction=self._position,
+                entry_price=self._entry_price,
+                exit_price=exit_price,
+                size_btc=self._position_btc,
+                outcome=outcome,
+                net_pnl=net_pnl,
+                fees=total_fees,
+                balance_after=self._balance,
+            )
+
         self._last_trade_time = current_time
         self._position = None
         self._entry_price = 0.0
@@ -386,6 +410,7 @@ class LiveSignalEngine:
         session_vwap: SessionVwap | None = None,
         execution_engine: ExecutionEngine | None = None,
         macro_filter: MacroCalendarFilter | None = None,
+        audit_logger: SignalAuditLogger | None = None,
     ) -> None:
         self._detector: MicrostructureDetector = (
             detector if detector is not None else MicrostructureDetector(divergence_window=100)
@@ -395,6 +420,7 @@ class LiveSignalEngine:
         self._session_vwap: SessionVwap = session_vwap if session_vwap is not None else SessionVwap()
         self.execution_engine: ExecutionEngine = execution_engine if execution_engine is not None else PaperTrader()
         self._macro_filter: MacroCalendarFilter | None = macro_filter
+        self._audit_logger: SignalAuditLogger | None = audit_logger
         self._window: collections.deque[dict] = collections.deque(maxlen=_DEQUE_MAXLEN)
         self._tick_task: asyncio.Task[None] | None = None
         self._signal_task: asyncio.Task[None] | None = None
@@ -489,15 +515,33 @@ class LiveSignalEngine:
                 verdict.gex_ok,
             )
 
-        if verdict.allowed:
-            if self._macro_filter is not None and not self._macro_filter.is_trading_allowed(timestamp_ms):
-                _LOG.warning(
-                    "[LIVE SIGNAL] %s at $%.2f REJECTED by MacroCalendarFilter (within high-impact blackout window).",
-                    signal_type,
-                    signal_price,
-                )
-                return
+        rejection_reason: str | None = None
+        if not verdict.allowed:
+            rejection_reason = "CONFLUENCE_FILTER"
+        elif self._macro_filter is not None and not self._macro_filter.is_trading_allowed(timestamp_ms):
+            rejection_reason = "MACRO_BLACKOUT"
 
+        if self._audit_logger is not None:
+            self._audit_logger.log_signal(
+                timestamp_ms=timestamp_ms,
+                signal_type=signal_type,
+                price=signal_price,
+                vwap=self._session_vwap.value,
+                gex_value=verdict.gex_value,
+                nearest_strike=verdict.nearest_strike,
+                verdict="APPROVED" if rejection_reason is None else "REJECTED",
+                rejection_reason=rejection_reason,
+            )
+
+        if rejection_reason == "MACRO_BLACKOUT":
+            _LOG.warning(
+                "[LIVE SIGNAL] %s at $%.2f REJECTED by MacroCalendarFilter (within high-impact blackout window).",
+                signal_type,
+                signal_price,
+            )
+            return
+
+        if verdict.allowed:
             self._signal_task = asyncio.create_task(
                 self.execution_engine.execute_signal(
                     signal_type,
