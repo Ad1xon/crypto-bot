@@ -3,3 +3,7 @@ line-length = 120
 
 [tool.ruff.lint]
 extend-ignore = ["C408", "BLE001"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

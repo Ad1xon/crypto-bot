@@ -5,5 +5,4 @@ data/
 *.log
 venv/
 .pytest_cache/
-.github/
 *.html
