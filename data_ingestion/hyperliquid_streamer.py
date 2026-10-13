@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import date, datetime, timezone
 from typing import Any
 
 import websockets
@@ -30,6 +31,7 @@ class HyperliquidStreamer(DataStreamer):
         config: AppConfig = SETTINGS,
         dashboard: CLIDashboard | None = None,
         execution_engine: ExecutionEngine | None = None,
+        auto_reset_cvd: bool = True,
     ) -> None:
         self._config = config
         self._url = config.hyperliquid_ws.ws_url
@@ -39,6 +41,8 @@ class HyperliquidStreamer(DataStreamer):
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._dashboard = dashboard
         self._cvd = 0.0
+        self._auto_reset_cvd = auto_reset_cvd
+        self._last_cvd_date: date | None = None
 
         self._tick_logger = TickLogger(
             symbol=self._symbol,
@@ -152,8 +156,33 @@ class HyperliquidStreamer(DataStreamer):
             ofi=ofi,
         )
 
+    def reset_cvd(self, initial_value: float = 0.0) -> None:
+        """Reset cumulative volume delta to prevent multi-day unbounded drift."""
+        logger.info("Resetting CVD from %.4f to %.4f", self._cvd, initial_value)
+        self._cvd = initial_value
+
+    def _maybe_reset_cvd(self, timestamp_ms: int) -> None:
+        """Automatically reset CVD at 00:00:00 UTC when a new trading day begins."""
+        if not self._auto_reset_cvd or timestamp_ms <= 0:
+            return
+
+        trade_dt = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+        current_date = trade_dt.date()
+
+        if self._last_cvd_date is not None and current_date > self._last_cvd_date:
+            logger.info(
+                "New UTC session (%s) detected — resetting CVD from %.4f to 0.0",
+                current_date,
+                self._cvd,
+            )
+            self._cvd = 0.0
+        self._last_cvd_date = current_date
+
     def _handle_trades(self, trades: list[dict[str, Any]]) -> None:
         for trade in trades:
+            ts_ms = int(trade.get("time", 0))
+            self._maybe_reset_cvd(ts_ms)
+
             sz = float(trade.get("sz", 0))
             px = float(trade.get("px", 0))
             side = trade.get("dir", "Buy")
@@ -164,7 +193,7 @@ class HyperliquidStreamer(DataStreamer):
 
             self._tick_logger.put_trade(
                 {
-                    "timestamp_ms": trade.get("time", 0),
+                    "timestamp_ms": ts_ms,
                     "price": px,
                     "qty": sz,
                     "side": side,
