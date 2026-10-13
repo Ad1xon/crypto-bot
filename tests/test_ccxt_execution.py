@@ -194,3 +194,23 @@ class TestKillSwitch:
         )
 
         mock_exchange.create_market_buy_order.assert_called_once()
+
+    async def test_execute_signal_uses_position_sizer(self, clean_broker: CCXTBroker, mock_exchange: MagicMock) -> None:
+        """When position_sizer is configured, Kelly sizing overrides fixed risk fraction."""
+        from quant_models.position_sizer import PositionSizer
+
+        sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)
+        clean_broker._position_sizer = sizer
+
+        # Balance = 10000, risk capital = 500, base SL dist = 150, gex_value=0.02 (mult=1.0) -> 500 / 150 = 3.333333 BTC
+        await clean_broker.execute_signal(
+            signal_type=_BULLISH,
+            current_price=_ENTRY_PRICE,
+            current_time=_CURRENT_TIME,
+            gex_value=0.02,
+        )
+
+        mock_exchange.create_market_buy_order.assert_called_once()
+        call_args = mock_exchange.create_market_buy_order.call_args[0]
+        # call_args[1] is amount
+        assert abs(call_args[1] - (500.0 / 150.0)) < 1e-4

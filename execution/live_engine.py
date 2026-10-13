@@ -20,6 +20,7 @@ import pandas as pd
 from execution.interfaces import ExecutionEngine
 from quant_models.gex_risk_manager import GexRiskManager
 from quant_models.macro_filter import MacroCalendarFilter
+from quant_models.position_sizer import PositionSizer
 from quant_models.smc_detectors import MicrostructureDetector
 from quant_models.super_confluence import (
     ConfluenceVerdict,
@@ -52,6 +53,7 @@ class PaperTrader(ExecutionEngine):
         cooldown_s: float = 60.0,
         slippage_bps: float = 2.0,
         max_daily_loss_usdt: float = 500.0,
+        position_sizer: PositionSizer | None = None,
         state_file: pathlib.Path = pathlib.Path("data/paper_state.json"),
     ) -> None:
         self._balance: float = balance
@@ -63,6 +65,7 @@ class PaperTrader(ExecutionEngine):
         self._cooldown_s: float = cooldown_s
         self._slippage_bps: float = slippage_bps
         self._max_daily_loss_usdt: float = max_daily_loss_usdt
+        self._position_sizer: PositionSizer | None = position_sizer
 
         self._position: str | None = None
         self._entry_price: float = 0.0
@@ -224,8 +227,17 @@ class PaperTrader(ExecutionEngine):
         else:
             self._entry_price = price * (1.0 - slip_factor)
 
-        self._position_btc = self._position_size_usdt / self._entry_price
-        self._entry_fee = self._fee_rate * self._position_size_usdt
+        if self._position_sizer is not None:
+            self._position_btc = self._position_sizer.calculate_position_btc(
+                account_balance_usdt=self._balance,
+                sl_distance_usdt=self._sl_usdt,
+            )
+            actual_size_usdt: float = self._position_btc * self._entry_price
+        else:
+            actual_size_usdt = self._position_size_usdt
+            self._position_btc = actual_size_usdt / self._entry_price
+
+        self._entry_fee = self._fee_rate * actual_size_usdt
         self._balance -= self._entry_fee
 
         if self._position == "LONG":
@@ -238,12 +250,13 @@ class PaperTrader(ExecutionEngine):
         )
         _LOG.warning(
             "[PAPER TRADE ENTRY] Opened %s at $%s (mkt $%s, slip %.1fbps) | "
-            "Size: $%.0f | TP: $%s | SL: $%s | Balance: $%s",
+            "Size: $%.0f (%.6f BTC) | TP: $%s | SL: $%s | Balance: $%s",
             self._position,
             f"{self._entry_price:,.2f}",
             f"{price:,.2f}",
             self._slippage_bps,
-            self._position_size_usdt,
+            actual_size_usdt,
+            self._position_btc,
             f"{tp_level:,.2f}",
             f"{self._current_sl_price:,.2f}",
             f"{self._balance:,.2f}",

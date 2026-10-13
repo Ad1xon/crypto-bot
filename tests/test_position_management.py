@@ -112,3 +112,16 @@ class TestBreakEvenFloor:
         trader._evaluate_exit(_ACTIVATION_PRICE)
 
         assert trader._current_sl_price >= true_be
+
+
+def test_paper_trader_with_position_sizer(tmp_path: pathlib.Path) -> None:
+    from quant_models.position_sizer import PositionSizer
+
+    sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)
+    trader = _make_trader(tmp_path, position_sizer=sizer, sl_usdt=250.0)
+
+    # Balance 10000, risk capital is 500 USDT (5% cap)
+    # SL distance is 250 USDT -> size = 500 / 250 = 2.0 BTC
+    trader._open_position("BULLISH_ABSORPTION", 50000.0)
+    assert abs(trader._position_btc - 2.0) < 1e-4
+    assert trader.has_open_position

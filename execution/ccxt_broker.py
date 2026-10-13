@@ -11,6 +11,7 @@ import ccxt.async_support as ccxt
 
 from execution.discord_alerter import DiscordAlerter
 from execution.interfaces import ExecutionEngine
+from quant_models.position_sizer import PositionSizer
 
 _LOG: Final[logging.Logger] = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class CCXTBroker(ExecutionEngine):
         trailing_activation_usdt: float = 100.0,
         cooldown_s: float = 60.0,
         max_daily_loss_usdt: float = 500.0,
+        position_sizer: PositionSizer | None = None,
         state_file: pathlib.Path = _DEFAULT_STATE_FILE,
     ) -> None:
         exchange_class: type = getattr(ccxt, exchange_id)
@@ -74,6 +76,7 @@ class CCXTBroker(ExecutionEngine):
         self._trailing_activation_usdt: float = trailing_activation_usdt
         self._cooldown_s: float = cooldown_s
         self._max_daily_loss_usdt: float = max_daily_loss_usdt
+        self._position_sizer: PositionSizer | None = position_sizer
         self._state_file: pathlib.Path = state_file
 
         self._position: str | None = None
@@ -392,10 +395,18 @@ class CCXTBroker(ExecutionEngine):
             _LOG.error("[CCXT BROKER] Balance fetch returned zero — signal %s aborted.", signal_type)
             return
 
-        risk_capital: float = current_balance * self._risk_per_trade_pct
-        base_size_btc: float = risk_capital / self._base_sl_usdt_dist
         multiplier: float = self._gex_multiplier(abs(gex_value))
-        final_size_btc: float = float(self._exchange.amount_to_precision(self._symbol, base_size_btc * multiplier))
+        if self._position_sizer is not None:
+            base_size_btc: float = self._position_sizer.calculate_position_btc(
+                account_balance_usdt=current_balance,
+                sl_distance_usdt=self._base_sl_usdt_dist,
+                gex_modifier=multiplier,
+            )
+        else:
+            risk_capital: float = current_balance * self._risk_per_trade_pct
+            base_size_btc = (risk_capital / self._base_sl_usdt_dist) * multiplier
+
+        final_size_btc: float = float(self._exchange.amount_to_precision(self._symbol, base_size_btc))
 
         if signal_type == _BULLISH:
             hard_sl_price: float = current_price - self._base_sl_usdt_dist

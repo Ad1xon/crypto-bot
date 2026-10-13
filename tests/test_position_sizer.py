@@ -23,3 +23,13 @@ def test_get_position_size():
     # Unfavourable GEX -> cuts size in half
     pos_usdt_gex = sizer.get_position_size(account_balance_usdt=10000.0, gex_modifier=0.5)
     assert abs(pos_usdt_gex - 250.0) < 1e-5
+
+
+def test_calculate_position_btc():
+    sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)
+    # Risk capital is 500 USDT, SL dist is 250 USDT -> size = 2.0 BTC
+    size_btc = sizer.calculate_position_btc(account_balance_usdt=10000.0, sl_distance_usdt=250.0)
+    assert abs(size_btc - 2.0) < 1e-5
+
+    # If SL distance is 0, size is 0
+    assert sizer.calculate_position_btc(10000.0, 0.0) == 0.0

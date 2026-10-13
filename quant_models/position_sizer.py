@@ -31,3 +31,19 @@ class PositionSizer:
         adjusted_risk_fraction = max_risk_fraction * gex_modifier
 
         return max(0.0, account_balance_usdt * adjusted_risk_fraction)
+
+    def calculate_position_btc(
+        self,
+        account_balance_usdt: float,
+        sl_distance_usdt: float,
+        gex_modifier: float = 1.0,
+    ) -> float:
+        """Calculate position size in BTC based on Kelly risk capital and SL distance.
+
+        Risk capital = get_position_size(account_balance_usdt, gex_modifier)
+        Position BTC = risk_capital / sl_distance_usdt
+        """
+        if sl_distance_usdt <= 0.0:
+            return 0.0
+        risk_capital = self.get_position_size(account_balance_usdt, gex_modifier)
+        return risk_capital / sl_distance_usdt
