@@ -91,7 +91,7 @@ class AppConfig:
     deribit: DeribitConfig = field(default_factory=DeribitConfig)
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
-    log_file: str = field(default_factory=lambda: os.getenv("LOG_FILE", "app.log"))
+    log_file: str = field(default_factory=lambda: os.getenv("LOG_FILE", "logs/app.log"))
     live_mode: bool = field(
         default_factory=lambda: os.getenv("LIVE_MODE", "False").strip().lower() in {"true", "1", "yes"}
     )

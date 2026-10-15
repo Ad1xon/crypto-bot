@@ -3,8 +3,12 @@ __pycache__/
 data/
 *.parquet
 *.log
+logs/
 venv/
 .pytest_cache/
+.mypy_cache/
 *.html
 .cursorrules
 STATE.md
+.vscode
+

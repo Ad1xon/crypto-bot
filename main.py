@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
 import signal
 import sys
 
@@ -22,9 +24,23 @@ from visualizer.cli_dashboard import CLIDashboard
 _LOG: logging.Logger = logging.getLogger(__name__)
 
 
-def _configure_logging(level: str = "INFO", log_file: str = "app.log") -> None:
-    """Route all output to a file so Rich owns stdout exclusively."""
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+def _configure_logging(
+    level: str = "INFO",
+    log_file: str = "logs/app.log",
+    retention_days: int = 5,
+) -> None:
+    """Route all output to a rotating file so Rich owns stdout exclusively.
+
+    Rotates daily at midnight and retains log files for the last ``retention_days``.
+    """
+    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+    file_handler = TimedRotatingFileHandler(
+        filename=log_file,
+        when="midnight",
+        interval=1,
+        backupCount=retention_days,
+        encoding="utf-8",
+    )
     file_handler.setFormatter(
         logging.Formatter(
             fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
