@@ -6,3 +6,5 @@ data/
 venv/
 .pytest_cache/
 *.html
+.cursorrules
+STATE.md

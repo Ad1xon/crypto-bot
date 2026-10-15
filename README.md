@@ -1,52 +1,132 @@
-# Crypto-Quant 📈
+# Crypto-Quant
 
-An advanced, asynchronous algorithmic trading system tailored for high-frequency data ingestion and order execution. Recently migrated to **Hyperliquid DEX** for zero gas fees, low latency, and no geo-blocking restrictions.
+A modular, asynchronous algorithmic trading system for **Hyperliquid L1
+perpetual futures**. Signal generation uses Smart Money Concept microstructure
+analysis (CVD/OFI absorption) gated by Deribit Gamma Exposure, macro event
+blackout windows, and FinBERT sentiment scoring.
 
-## Current Architecture
+Paper-trading by default. Live mode is a single env-var flip.
 
-Below is a high-level representation of the current architecture:
+---
+
+## Architecture
 
 ```mermaid
 flowchart TD
     subgraph Data Ingestion
-        HL[Hyperliquid L1 WebSocket] -->|L2Book, Trades| Streamer(HyperliquidStreamer)
-        Streamer -->|Tick & BBO| Logger(TickLogger)
+        HL[Hyperliquid WebSocket] -->|L2Book 20-level, Trades| Streamer(HyperliquidStreamer)
+        Streamer -->|BBO, CVD, OFI| Logger(TickLogger)
         Logger -->|Parquet| Storage[(Local Storage)]
+        Deribit[Deribit REST] -->|GEX snapshot| GEXFile[(data/live_gex.json)]
     end
 
     subgraph Signal Pipeline
-        Streamer -->|Tick CVD & OFI| Engine(LiveSignalEngine)
-        Engine -->|SMC Absorption| Detector(MicrostructureDetector)
-        Engine -->|Gamma Risk| GEX(GexRiskManager)
+        Streamer -->|tick| Engine(LiveSignalEngine)
+        Engine -->|CVD + OFI| Detector(MicrostructureDetector)
+        Engine -->|price, VWAP| Confluence(SuperConfluenceFilter)
+        GEXFile -->|strike map| GEX(GexRiskManager)
+        GEX --> Confluence
+        Macro(MacroCalendarFilter) -->|blackout gate| Engine
+        Sentiment(CryptoSentimentAnalyzer) -->|net_score| Sizer(PositionSizer)
+        Confluence -->|verdict| Engine
     end
 
     subgraph Execution
-        Engine -->|Valid Signal| Broker(CCXTBroker)
-        Broker -->|REST API| HL_Exec[Hyperliquid Exchange]
-        Broker -.->|Alerts| Discord(Discord Webhook)
+        Engine -->|valid signal| Broker(CCXTBroker / PaperTrader)
+        Broker -->|signed order| HL_Exec[Hyperliquid Exchange]
+        Broker -.->|alert| Discord(Discord Webhook)
+        Broker --> SigLog(SignalLogger)
     end
 
-    subgraph Interface
-        Streamer -.->|Dashboard Updates| CLI(Rich CLIDashboard)
+    subgraph Visualizer
+        Streamer -.->|book updates| CLI(Rich CLIDashboard)
+        Macro -.->|macro status| CLI
+        Sentiment -.->|FinBERT score| CLI
     end
 
     classDef main fill:#1e1e2e,stroke:#89b4fa,stroke-width:2px,color:#cdd6f4;
     classDef storage fill:#313244,stroke:#a6e3a1,stroke-width:2px,color:#cdd6f4;
     classDef ext fill:#11111b,stroke:#f38ba8,stroke-width:2px,color:#cdd6f4;
 
-    class Streamer,Engine,Detector,GEX,Broker,Logger,CLI main;
-    class Storage storage;
-    class HL,HL_Exec,Discord ext;
+    class Streamer,Engine,Detector,Confluence,GEX,Broker,Logger,CLI,Sizer,Macro,Sentiment,SigLog main;
+    class Storage,GEXFile storage;
+    class HL,HL_Exec,Discord,Deribit ext;
 ```
 
-## Features
-- **Hyperliquid Integration**: Native asynchronous streams parsing L2 orderbooks and trades.
-- **Smart Money Concepts (SMC)**: Microstructure detectors searching for real-time absorptions using Order Flow Imbalance (OFI) and Cumulative Volume Delta (CVD).
-- **Gamma Exposure (GEX)**: Risk management layer that calibrates positions according to the derivatives market's gamma profile.
-- **Async Execution**: `CCXTBroker` leverages `ccxt.async_support` for rapid, non-blocking order placement.
+For a detailed breakdown of every module and the rationale behind each design
+decision, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-## Next Steps / Roadmap
-1. **Fleshing out Hyperliquid Data Parse**: Adapting the multi-level L2Book snapshot diffs perfectly into our internal book state.
-2. **Backtesting Pipeline**: Wiring historical data into the `LiveSignalEngine` via an offline simulator.
-3. **Position Sizing**: Dynamically calculating Kelly fractions / risk based on account equity and current market GEX.
-4. **Execution Logic**: Tracking real positions in `ccxt_broker` against Hyperliquid's REST API for trailing stops.
+---
+
+## Stack
+
+| Layer          | Technology                                          |
+|----------------|-----------------------------------------------------|
+| Language       | Python 3.10+                                        |
+| Exchange       | Hyperliquid L1 (WebSocket + REST via CCXT)          |
+| Options data   | Deribit REST (GEX snapshots)                        |
+| Async          | `asyncio`                                           |
+| Sentiment NLP  | ProsusAI/FinBERT (`transformers`)                   |
+| Data storage   | Apache Parquet (`pyarrow`)                          |
+| Terminal UI    | `rich`                                              |
+| Linting        | `ruff`                                              |
+| Testing        | `pytest` + `pytest-asyncio`                         |
+| CI/CD          | GitHub Actions                                      |
+
+---
+
+## Quickstart
+
+```bash
+# 1. Clone and create virtual environment
+git clone https://github.com/Ad1xon/crypto-bot.git
+cd crypto-bot
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Linux / macOS
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Configure
+cp .env.example .env
+# Edit .env — set TRADING_SYMBOL, USE_TESTNET, etc.
+
+# 4. Run (paper trading by default)
+python main.py
+```
+
+---
+
+## Development
+
+```bash
+# Install pre-commit hooks (enforces ruff before every commit)
+pip install pre-commit
+pre-commit install
+
+# Run tests
+pytest
+
+# Lint + format
+ruff check . --fix
+ruff format .
+```
+
+---
+
+## Instruments
+
+| Symbol | Exchange    | Type      | Status  |
+|--------|-------------|-----------|---------|
+| `BTC`  | Hyperliquid | Perpetual | Active  |
+| `ETH`  | Hyperliquid | Perpetual | Planned |
+| `SOL`  | Hyperliquid | Perpetual | Planned |
+
+---
+
+## Status
+
+Paper trading. Live execution via `LIVE_MODE=True` targets Hyperliquid testnet
+by default (`USE_TESTNET=True`). Flip both flags only after validating the
+backtest Profit Factor on historical tick data.
