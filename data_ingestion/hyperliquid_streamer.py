@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import websockets
+from websockets.asyncio.client import ClientConnection
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from config.settings import SETTINGS, AppConfig
@@ -40,7 +41,7 @@ class HyperliquidStreamer(DataStreamer):
         self._symbol = config.hyperliquid_ws.symbol
         self._reconnect = config.reconnect
         self._running = False
-        self._ws: websockets.WebSocketClientProtocol | None = None
+        self._ws: ClientConnection | None = None
         self._dashboard = dashboard
         self._cvd = 0.0
         self._auto_reset_cvd = auto_reset_cvd
@@ -108,7 +109,7 @@ class HyperliquidStreamer(DataStreamer):
             await asyncio.sleep(delay)
             delay = min(delay * self._reconnect.backoff_factor, self._reconnect.max_delay_s)
 
-    async def _receive_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
+    async def _receive_loop(self, ws: ClientConnection) -> None:
         async for raw in ws:
             if not self._running:
                 break

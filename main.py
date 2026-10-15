@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from logging.handlers import TimedRotatingFileHandler
-from pathlib import Path
 import signal
 import sys
+from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
 
 from config.settings import SETTINGS
 from data_ingestion.hyperliquid_streamer import HyperliquidStreamer

@@ -3,7 +3,7 @@ import logging
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class CryptoSentimentAnalyzer:
         self._latest_score = SentimentScore(0, 0, 0.0, 0)
 
         # Lazy load the heavy transformer model so it doesn't block startup unnecessarily
-        self._nlp_pipeline = None
+        self._nlp_pipeline: Any = None
 
     def _init_model(self) -> None:
         """Initialize the FinBERT model."""
@@ -38,7 +38,7 @@ class CryptoSentimentAnalyzer:
             try:
                 from transformers import pipeline
 
-                self._nlp_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+                self._nlp_pipeline = pipeline("text-classification", model="ProsusAI/finbert")
             except ImportError:
                 raise ImportError("Please install transformers and torch: pip install transformers torch")
 

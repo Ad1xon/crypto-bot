@@ -78,7 +78,8 @@ class TestFillLatency:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         mock_exchange.create_market_buy_order = AsyncMock(return_value={"id": "lat_001"})
-        clean_broker._alerter.send_alert = AsyncMock()
+        mock_send_alert = AsyncMock()
+        clean_broker._alerter.send_alert = mock_send_alert  # type: ignore[method-assign]
         signal_ts: float = time.perf_counter()
 
         with caplog.at_level(logging.INFO):
@@ -93,8 +94,8 @@ class TestFillLatency:
             "Order executed. Latency:" in record.getMessage() and "ms" in record.getMessage()
             for record in caplog.records
         )
-        clean_broker._alerter.send_alert.assert_called_once()
-        kwargs = clean_broker._alerter.send_alert.call_args.kwargs
+        mock_send_alert.assert_called_once()
+        kwargs = mock_send_alert.call_args.kwargs
         fields = kwargs["fields"]
         latency_field = next(f for f in fields if f["name"] == "Latency")
         assert "ms" in str(latency_field["value"])

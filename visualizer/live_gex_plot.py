@@ -226,7 +226,7 @@ def main() -> None:
     fig.patch.set_facecolor(BG_FIGURE)
     fig.canvas.manager.set_window_title("BTC Live GEX Profile")  # type: ignore[union-attr]
 
-    fig.ani = animation.FuncAnimation(
+    _ani = animation.FuncAnimation(
         fig,
         animate,
         fargs=(ax, fig),
