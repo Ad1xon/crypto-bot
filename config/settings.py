@@ -105,9 +105,7 @@ class AppConfig:
     )
     max_order_size_btc: float = field(default_factory=lambda: float(os.getenv("MAX_ORDER_SIZE_BTC", "0.05")))
     default_leverage: int = field(default_factory=lambda: int(os.getenv("DEFAULT_LEVERAGE", "5")))
-    slippage_tolerance_pct: float = field(
-        default_factory=lambda: float(os.getenv("SLIPPAGE_TOLERANCE_PCT", "0.001"))
-    )
+    slippage_tolerance_pct: float = field(default_factory=lambda: float(os.getenv("SLIPPAGE_TOLERANCE_PCT", "0.001")))
 
     def build_broker(self) -> BrokerConfig:
         """Construct and validate BrokerConfig.

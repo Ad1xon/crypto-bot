@@ -242,11 +242,7 @@ class CCXTBroker(ExecutionEngine):
             positions: list[dict] = await self._exchange.fetch_positions([self._symbol])
             base_sym = self._symbol.split("/")[0] if "/" in self._symbol else self._symbol
             active_pos = next(
-                (
-                    p
-                    for p in positions
-                    if p.get("symbol") == self._symbol or p.get("info", {}).get("coin") == base_sym
-                ),
+                (p for p in positions if p.get("symbol") == self._symbol or p.get("info", {}).get("coin") == base_sym),
                 None,
             )
             if active_pos is None:

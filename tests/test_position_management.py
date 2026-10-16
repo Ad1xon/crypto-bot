@@ -54,9 +54,9 @@ class TestTrailingStopLong:
         prev_sl: float = trader._current_sl_price
         for price in [_ACTIVATION_PRICE, 51_000.0, 51_500.0, _ABOVE_PEAK]:
             trader._evaluate_exit(price)
-            assert trader._current_sl_price >= prev_sl, (
-                f"SL retreated from {prev_sl:.4f} to {trader._current_sl_price:.4f} on price tick {price}"
-            )
+            assert (
+                trader._current_sl_price >= prev_sl
+            ), f"SL retreated from {prev_sl:.4f} to {trader._current_sl_price:.4f} on price tick {price}"
             prev_sl = trader._current_sl_price
 
     def test_sl_never_retreats_after_price_reversal(self, tmp_path: pathlib.Path) -> None:
@@ -69,9 +69,9 @@ class TestTrailingStopLong:
 
         trader._evaluate_exit(51_000.0)
 
-        assert trader._current_sl_price == peak_sl, (
-            f"SL moved from {peak_sl:.4f} to {trader._current_sl_price:.4f} on reversal"
-        )
+        assert (
+            trader._current_sl_price == peak_sl
+        ), f"SL moved from {peak_sl:.4f} to {trader._current_sl_price:.4f} on reversal"
 
     def test_sl_does_not_move_below_activation_threshold(self, tmp_path: pathlib.Path) -> None:
         """Price ticks below the activation threshold must leave the initial SL unchanged."""
@@ -97,9 +97,9 @@ class TestBreakEvenFloor:
 
         trader._evaluate_exit(_ACTIVATION_PRICE)
 
-        assert trader._current_sl_price >= expected_be, (
-            f"SL {trader._current_sl_price:.4f} is below break-even {expected_be:.4f}; taker fees are not fully covered"
-        )
+        assert (
+            trader._current_sl_price >= expected_be
+        ), f"SL {trader._current_sl_price:.4f} is below break-even {expected_be:.4f}; taker fees are not fully covered"
 
     def test_be_floor_holds_even_when_dynamic_sl_is_lower(self, tmp_path: pathlib.Path) -> None:
         """When dynamic_sl < true_be, the SL must be clamped to true_be, not dynamic_sl."""
