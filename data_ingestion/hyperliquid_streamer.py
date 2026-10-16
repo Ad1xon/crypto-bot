@@ -97,6 +97,7 @@ class HyperliquidStreamer(DataStreamer):
                     delay = self._reconnect.initial_delay_s
                     await ws.send(self._subscribe_payload)
                     await ws.send(self._subscribe_trades)
+                    self._live_engine.clear_window()
                     await self._receive_loop(ws)
             except (ConnectionClosed, WebSocketException, OSError) as exc:
                 logger.warning("Hyperliquid WebSocket lost: %s", exc)

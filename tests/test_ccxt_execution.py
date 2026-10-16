@@ -40,6 +40,7 @@ def clean_broker(tmp_path: pathlib.Path, mock_exchange: MagicMock) -> CCXTBroker
             trailing_activation_usdt=100.0,
             cooldown_s=0.0,
             max_daily_loss_usdt=500.0,
+            max_order_size_btc=10.0,
             state_file=state_file,
         )
 
@@ -214,3 +215,75 @@ class TestKillSwitch:
         call_args = mock_exchange.create_market_buy_order.call_args[0]
         # call_args[1] is amount
         assert abs(call_args[1] - (500.0 / 150.0)) < 1e-4
+
+    async def test_order_size_clamped_to_max_order_size_btc(
+        self, clean_broker: CCXTBroker, mock_exchange: MagicMock
+    ) -> None:
+        """Calculated position sizes exceeding max_order_size_btc must be clamped."""
+        from quant_models.position_sizer import PositionSizer
+
+        clean_broker._max_order_size_btc = 0.05
+        sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)
+        clean_broker._position_sizer = sizer
+
+        await clean_broker.execute_signal(
+            signal_type=_BULLISH,
+            current_price=_ENTRY_PRICE,
+            current_time=_CURRENT_TIME,
+            gex_value=0.02,
+        )
+
+        mock_exchange.create_market_buy_order.assert_called_once()
+        call_args = mock_exchange.create_market_buy_order.call_args[0]
+        assert call_args[1] == 0.05
+
+    async def test_consecutive_errors_trigger_circuit_breaker(
+        self, clean_broker: CCXTBroker, mock_exchange: MagicMock
+    ) -> None:
+        """After max_consecutive_errors failed attempts, trading must freeze into system_fault."""
+        import ccxt
+
+        mock_exchange.create_market_buy_order.side_effect = ccxt.NetworkError("Connection lost")
+        clean_broker._max_consecutive_errors = 3
+
+        for i in range(1, 4):
+            clean_broker._last_trade_time = 0.0  # bypass cooldown for test invocation
+            await clean_broker.execute_signal(
+                signal_type=_BULLISH,
+                current_price=_ENTRY_PRICE,
+                current_time=_CURRENT_TIME + i,
+            )
+
+        assert clean_broker._consecutive_errors == 3
+        assert clean_broker._system_fault is True
+
+    async def test_unrealized_drawdown_kill_switch_triggers_emergency_exit(
+        self, clean_broker: CCXTBroker, mock_exchange: MagicMock
+    ) -> None:
+        """When unrealized loss on an open position breaches max_daily_loss_usdt, close position and freeze."""
+        clean_broker._position = "LONG"
+        clean_broker._entry_price = 50_000.0
+        clean_broker._position_btc = 0.1  # $5,000 notional
+        clean_broker._max_daily_loss_usdt = 500.0
+        clean_broker._session_pnl = 0.0
+
+        # Price drops to $44,000 -> unrealized loss = 0.1 * (44,000 - 50,000) = -600 USD (breaches -500 limit)
+        current_crash_price = 44_000.0
+        await clean_broker.update_tick(current_price=current_crash_price, current_time=_CURRENT_TIME)
+
+        # Market sell order must have been placed to close position
+        mock_exchange.create_market_sell_order.assert_called()
+        assert clean_broker._system_fault is True
+
+    async def test_cancel_bracket_orders_hyperliquid_fallback(
+        self, clean_broker: CCXTBroker, mock_exchange: MagicMock
+    ) -> None:
+        """When cancel_all_orders is not supported (Hyperliquid), fallback to fetchOpenOrders + cancel_order."""
+        mock_exchange.has = {"cancelAllOrders": False, "fetchOpenOrders": True, "cancelOrders": False}
+        mock_exchange.fetch_open_orders = AsyncMock(return_value=[{"id": "order_123"}, {"id": "order_456"}])
+        mock_exchange.cancel_order = AsyncMock()
+
+        ok = await clean_broker._cancel_all_bracket_orders()
+
+        assert ok is True
+        assert mock_exchange.cancel_order.call_count == 2

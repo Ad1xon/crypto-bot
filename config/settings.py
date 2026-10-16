@@ -18,7 +18,15 @@ load_dotenv()
 
 def _require_env(key: str) -> str:
     value: str = os.getenv(key, "")
-    if not value or value == "your_api_key_here" or value == "your_api_secret_here":
+    invalid_placeholders = {
+        "your_api_key_here",
+        "your_api_secret_here",
+        "your_wallet_address_here",
+        "your_private_key_here",
+        "your_master_wallet_address_here",
+        "your_agent_wallet_private_key_here",
+    }
+    if not value or value in invalid_placeholders:
         raise RuntimeError(f"{key} is missing in .env — set a real value before starting the live broker.")
     return value
 
@@ -94,6 +102,11 @@ class AppConfig:
     log_file: str = field(default_factory=lambda: os.getenv("LOG_FILE", "logs/app.log"))
     live_mode: bool = field(
         default_factory=lambda: os.getenv("LIVE_MODE", "False").strip().lower() in {"true", "1", "yes"}
+    )
+    max_order_size_btc: float = field(default_factory=lambda: float(os.getenv("MAX_ORDER_SIZE_BTC", "0.05")))
+    default_leverage: int = field(default_factory=lambda: int(os.getenv("DEFAULT_LEVERAGE", "5")))
+    slippage_tolerance_pct: float = field(
+        default_factory=lambda: float(os.getenv("SLIPPAGE_TOLERANCE_PCT", "0.001"))
     )
 
     def build_broker(self) -> BrokerConfig:

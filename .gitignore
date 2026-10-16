@@ -5,6 +5,7 @@ data/
 *.log
 logs/
 venv/
+.venv/
 .pytest_cache/
 .mypy_cache/
 *.html

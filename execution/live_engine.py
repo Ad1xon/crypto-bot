@@ -425,6 +425,11 @@ class LiveSignalEngine:
         self._tick_task: asyncio.Task[None] | None = None
         self._signal_task: asyncio.Task[None] | None = None
 
+    def clear_window(self) -> None:
+        """Clear rolling tick window to prevent cross-disconnection false signals."""
+        _LOG.info("[LIVE SIGNAL ENGINE] Clearing rolling window after disconnection.")
+        self._window.clear()
+
     def update_trade(self, price: float, qty: float) -> None:
         """Fold a public trade into the shared session VWAP accumulator."""
         self._session_vwap.update(price, qty)

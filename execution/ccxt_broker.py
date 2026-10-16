@@ -50,19 +50,32 @@ class CCXTBroker(ExecutionEngine):
         trailing_activation_usdt: float = 100.0,
         cooldown_s: float = 60.0,
         max_daily_loss_usdt: float = 500.0,
+        max_order_size_btc: float = 0.05,
+        default_leverage: int = 5,
+        slippage_tolerance_pct: float = 0.001,
+        max_consecutive_errors: int = 3,
         position_sizer: PositionSizer | None = None,
         state_file: pathlib.Path = _DEFAULT_STATE_FILE,
     ) -> None:
         exchange_class: type = getattr(ccxt, exchange_id)
 
-        exchange_config = {
+        exchange_config: dict[str, Any] = {
             "enableRateLimit": True,
-            "options": {"defaultType": "swap"},
+            "options": {
+                "defaultType": "swap",
+                "adjustForTimeDifference": True,
+                "defaultSlippage": slippage_tolerance_pct,
+            },
         }
 
         if exchange_id == "hyperliquid":
             exchange_config["walletAddress"] = api_key
             exchange_config["privateKey"] = api_secret
+            _LOG.info(
+                "[CCXT BROKER] Hyperliquid Agent Wallet setup: WalletAddress=%s. "
+                "Ensure private key belongs to an authorized Agent Wallet (no withdrawal permissions).",
+                api_key,
+            )
         else:
             exchange_config["apiKey"] = api_key
             exchange_config["secret"] = api_secret
@@ -85,6 +98,11 @@ class CCXTBroker(ExecutionEngine):
         self._trailing_activation_usdt: float = trailing_activation_usdt
         self._cooldown_s: float = cooldown_s
         self._max_daily_loss_usdt: float = max_daily_loss_usdt
+        self._max_order_size_btc: float = max_order_size_btc
+        self._default_leverage: int = default_leverage
+        self._slippage_tolerance_pct: float = slippage_tolerance_pct
+        self._max_consecutive_errors: int = max_consecutive_errors
+        self._consecutive_errors: int = 0
         self._position_sizer: PositionSizer | None = position_sizer
         self._state_file: pathlib.Path = state_file
 
@@ -114,6 +132,26 @@ class CCXTBroker(ExecutionEngine):
             self._symbol,
             self._exchange.sandbox,
         )
+
+        # Synchronize time difference with exchange to avoid nonce/timestamp rejections
+        if hasattr(self._exchange, "load_time_difference"):
+            try:
+                await self._exchange.load_time_difference()
+                _LOG.info("[CCXT BROKER] Time difference synchronized with exchange.")
+            except Exception as exc:
+                _LOG.warning("[CCXT BROKER] Could not synchronize time difference: %s", exc)
+
+        # Set default leverage if supported by exchange
+        if hasattr(self._exchange, "set_leverage"):
+            try:
+                await self._exchange.set_leverage(self._default_leverage, self._symbol)
+                _LOG.info("[CCXT BROKER] Leverage set to %dx for %s.", self._default_leverage, self._symbol)
+            except Exception as exc:
+                _LOG.warning("[CCXT BROKER] Could not configure leverage: %s", exc)
+
+        # Reconcile position with exchange REST ground truth
+        await self._reconcile_positions_with_exchange()
+
         if self._startup_fault_alert:
             asyncio.create_task(
                 self._alerter.send_alert(
@@ -196,6 +234,92 @@ class CCXTBroker(ExecutionEngine):
             _LOG.warning("[CCXT BROKER] State file unreadable (%s) — starting fresh.", exc)
             self._save_state()
 
+    async def _reconcile_positions_with_exchange(self) -> None:
+        """Reconcile local position state with exchange ground truth via REST."""
+        if not hasattr(self._exchange, "fetch_positions"):
+            return
+        try:
+            positions: list[dict] = await self._exchange.fetch_positions([self._symbol])
+            base_sym = self._symbol.split("/")[0] if "/" in self._symbol else self._symbol
+            active_pos = next(
+                (
+                    p
+                    for p in positions
+                    if p.get("symbol") == self._symbol or p.get("info", {}).get("coin") == base_sym
+                ),
+                None,
+            )
+            if active_pos is None:
+                return
+
+            contracts = float(active_pos.get("contracts", 0.0) or active_pos.get("size", 0.0) or 0.0)
+            pos_side = str(active_pos.get("side", "")).upper()
+            if contracts == 0.0 and self._position is not None:
+                _LOG.warning(
+                    "[CCXT BROKER] Reconciliation mismatch: Local had %s position, but exchange has 0 contracts. Resetting local state.",
+                    self._position,
+                )
+                self._position = None
+                self._position_btc = 0.0
+                self._entry_price = 0.0
+                self._current_local_sl_price = 0.0
+                self._save_state()
+            elif contracts > 0.0:
+                mapped_side = (
+                    "LONG" if pos_side in {"LONG", "BUY"} else ("SHORT" if pos_side in {"SHORT", "SELL"} else None)
+                )
+                if mapped_side and mapped_side != self._position:
+                    _LOG.warning(
+                        "[CCXT BROKER] Reconciliation: Found %s position (%.6f BTC) on exchange. Syncing.",
+                        mapped_side,
+                        contracts,
+                    )
+                    self._position = mapped_side
+                    self._position_btc = contracts
+                    entry_px = float(active_pos.get("entryPrice", 0.0) or 0.0)
+                    if entry_px > 0.0:
+                        self._entry_price = entry_px
+                    self._save_state()
+        except Exception as exc:
+            _LOG.warning("[CCXT BROKER] Position reconciliation failed: %s", exc)
+
+    async def _cancel_all_bracket_orders(self) -> bool:
+        """Cancel open orders safely across exchanges, including Hyperliquid."""
+        has_dict = getattr(self._exchange, "has", {})
+        if isinstance(has_dict, dict) and has_dict.get("cancelAllOrders"):
+            try:
+                await self._exchange.cancel_all_orders(self._symbol)
+                return True
+            except (ccxt.NotSupported, ccxt.OperationFailed):
+                pass
+            except ccxt.BaseError as exc:
+                _LOG.warning("[CCXT BROKER] cancel_all_orders failed: %s", exc)
+
+        if isinstance(has_dict, dict) and has_dict.get("fetchOpenOrders"):
+            try:
+                open_orders = await self._exchange.fetch_open_orders(self._symbol)
+                if not open_orders:
+                    return True
+                order_ids = [str(o["id"]) for o in open_orders if o.get("id") is not None]
+                if not order_ids:
+                    return True
+                if has_dict.get("cancelOrders"):
+                    try:
+                        await self._exchange.cancel_orders(order_ids, self._symbol)
+                        return True
+                    except Exception as exc:
+                        _LOG.debug("[CCXT BROKER] Batch cancel_orders failed, falling back to individual: %s", exc)
+                for oid in order_ids:
+                    try:
+                        await self._exchange.cancel_order(oid, self._symbol)
+                    except Exception as exc:
+                        _LOG.warning("[CCXT BROKER] Failed to cancel order %s: %s", oid, exc)
+                return True
+            except Exception as exc:
+                _LOG.warning("[CCXT BROKER] Fallback order cancellation failed: %s", exc)
+                return False
+        return True
+
     @property
     def has_open_position(self) -> bool:
         return self._position is not None
@@ -223,8 +347,48 @@ class CCXTBroker(ExecutionEngine):
         return 0.8
 
     async def update_tick(self, current_price: float, current_time: float) -> None:
-        """Ratchet the trailing SL and trigger a market exit if any level is breached."""
+        """Ratchet the trailing SL and trigger a market exit if any level is breached.
+
+        Also evaluates real-time equity drawdown (unrealized PnL) to activate the
+        emergency kill-switch if losses breach the daily threshold.
+        """
         if self._position is None:
+            return
+
+        # Hard Drawdown Circuit Breaker: Realized + Unrealized Loss
+        if self._position == "LONG":
+            unrealized_pnl: float = self._position_btc * (current_price - self._entry_price)
+        elif self._position == "SHORT":
+            unrealized_pnl = self._position_btc * (self._entry_price - current_price)
+        else:
+            unrealized_pnl = 0.0
+
+        total_drawdown: float = self._session_pnl + unrealized_pnl
+        if total_drawdown <= -self._max_daily_loss_usdt:
+            _LOG.critical(
+                "[CCXT BROKER] EMERGENCY KILL-SWITCH TRIGGERED: "
+                "Total drawdown ($%.2f: Session PnL $%+.2f + Unrealized $%+.2f) "
+                "breached max daily limit (-$%.2f)! Closing position immediately.",
+                total_drawdown,
+                self._session_pnl,
+                unrealized_pnl,
+                self._max_daily_loss_usdt,
+            )
+            asyncio.create_task(
+                self._alerter.send_alert(
+                    title="EMERGENCY KILL-SWITCH: Daily Drawdown Limit Breached",
+                    description=(
+                        f"Total drawdown reached **${total_drawdown:+.2f}** "
+                        f"(Limit: **-${self._max_daily_loss_usdt:.2f}**).\n"
+                        f"Emergency market close executed. Trading frozen."
+                    ),
+                    color=0xE74C3C,
+                )
+            )
+            emergency_exit_side: str = "sell" if self._position == "LONG" else "buy"
+            await self._execute_market_exit(emergency_exit_side, current_price)
+            self._system_fault = True
+            self._save_state()
             return
 
         fee_coverage: float = self._entry_price * (self._fee_rate * 2.0)
@@ -277,7 +441,10 @@ class CCXTBroker(ExecutionEngine):
             return
 
         size: float = self._position_btc
-        reduce_params: dict[str, bool] = {"reduceOnly": True}
+        reduce_params: dict[str, Any] = {
+            "reduceOnly": True,
+            "slippage": str(self._slippage_tolerance_pct),
+        }
 
         try:
             if side == "sell":
@@ -311,22 +478,16 @@ class CCXTBroker(ExecutionEngine):
 
         cancel_ok: bool = False
         for attempt in range(1, _MAX_CANCEL_RETRIES + 1):
-            try:
-                await self._exchange.cancel_all_orders(self._symbol)
-                cancel_ok = True
+            cancel_ok = await self._cancel_all_bracket_orders()
+            if cancel_ok:
                 break
-            except ccxt.NetworkError as exc:
-                _LOG.warning(
-                    "[CCXT BROKER] cancel_all_orders attempt %d/%d failed — %s",
-                    attempt,
-                    _MAX_CANCEL_RETRIES,
-                    exc,
-                )
-                if attempt < _MAX_CANCEL_RETRIES:
-                    await asyncio.sleep(1.0)
-            except ccxt.BaseError as exc:
-                _LOG.warning("[CCXT BROKER] Could not cancel bracket orders after exit — %s", exc)
-                break
+            _LOG.warning(
+                "[CCXT BROKER] cancel bracket orders attempt %d/%d failed",
+                attempt,
+                _MAX_CANCEL_RETRIES,
+            )
+            if attempt < _MAX_CANCEL_RETRIES:
+                await asyncio.sleep(1.0)
 
         if cancel_ok:
             self._position = None
@@ -450,6 +611,15 @@ class CCXTBroker(ExecutionEngine):
 
         final_size_btc: float = float(self._exchange.amount_to_precision(self._symbol, base_size_btc))
 
+        # Hard guard: clamp position size to configured MAX_ORDER_SIZE_BTC
+        if final_size_btc > self._max_order_size_btc:
+            _LOG.warning(
+                "[CCXT BROKER] Sizer calculated %.6f BTC, exceeding MAX_ORDER_SIZE_BTC (%.6f BTC). Clamping to safety maximum.",
+                final_size_btc,
+                self._max_order_size_btc,
+            )
+            final_size_btc = self._max_order_size_btc
+
         if signal_type == _BULLISH:
             hard_sl_price: float = current_price - effective_sl_dist
             hard_tp_price: float = current_price + effective_tp_dist
@@ -465,9 +635,13 @@ class CCXTBroker(ExecutionEngine):
         sl_price_str: str = self._exchange.price_to_precision(self._symbol, hard_sl_price)
         tp_price_str: str = self._exchange.price_to_precision(self._symbol, hard_tp_price)
 
-        params: dict[str, str] = {
+        # Dual-format bracket order parameters: supports both generic CCXT exchanges and Hyperliquid L1
+        params: dict[str, Any] = {
+            "slippage": str(self._slippage_tolerance_pct),
             "stopLossPrice": sl_price_str,
             "takeProfitPrice": tp_price_str,
+            "stopLoss": {"triggerPrice": sl_price_str, "type": "market"},
+            "takeProfit": {"triggerPrice": tp_price_str, "type": "market"},
         }
 
         try:
@@ -499,6 +673,7 @@ class CCXTBroker(ExecutionEngine):
             self._entry_price = current_price
             self._position_btc = final_size_btc
             self._current_local_sl_price = float(sl_price_str)
+            self._consecutive_errors = 0
             self._save_state()
 
             latency_field: str = f"{latency_ms:.2f} ms" if latency_ms is not None else "n/a"
@@ -531,9 +706,31 @@ class CCXTBroker(ExecutionEngine):
                 )
             )
 
-        except ccxt.NetworkError as exc:
-            _LOG.error("[CCXT BROKER] Network error executing signal '%s' — %s", signal_type, exc)
-        except ccxt.RateLimitExceeded as exc:
-            _LOG.warning("[CCXT BROKER] Rate limit executing signal '%s' — %s", signal_type, exc)
-        except ccxt.BaseError as exc:
-            _LOG.error("[CCXT BROKER] Exchange error executing signal '%s' — %s", signal_type, exc)
+        except (ccxt.NetworkError, ccxt.RateLimitExceeded, ccxt.BaseError) as exc:
+            self._consecutive_errors += 1
+            self._last_trade_time = current_time  # Trigger cooldown immediately to prevent rapid error loops
+            _LOG.error(
+                "[CCXT BROKER] %s executing signal '%s' (failure %d/%d) — %s",
+                type(exc).__name__,
+                signal_type,
+                self._consecutive_errors,
+                self._max_consecutive_errors,
+                exc,
+            )
+            if self._consecutive_errors >= self._max_consecutive_errors:
+                self._system_fault = True
+                self._save_state()
+                _LOG.critical(
+                    "[CCXT BROKER] CIRCUIT BREAKER TRIGGERED: %d consecutive execution errors. Trading FROZEN to prevent infinite loop / fee draining.",
+                    self._consecutive_errors,
+                )
+                asyncio.create_task(
+                    self._alerter.send_alert(
+                        title="CIRCUIT BREAKER: Repeated Order Failures",
+                        description=(
+                            f"Encountered **{self._consecutive_errors}** consecutive order execution errors.\n"
+                            f"Trading has been frozen to prevent runaway spam and fee draining."
+                        ),
+                        color=0xE74C3C,
+                    )
+                )

@@ -10,44 +10,48 @@ scoring.
 
 ## High-Level Data Flow
 
-```
-  Deribit REST              Hyperliquid WebSocket
-  (GEX snapshot)            (L2 Book + Trades)
-        |                          |
-        v                          v
-  data/live_gex.json     HyperliquidStreamer
-  (disk, 30 s TTL)               |
-        |                         |  BBO, CVD, OFI
-        |                         v
-        |               LiveSignalEngine
-        |                    |        |
-        |          +---------+        +--------------+
-        |          |                                  |
-        v          v                                  v
-   GexRiskManager  MicrostructureDetector      PositionSizer
-   SuperConfluence  (BULLISH / BEARISH         (Half-Kelly +
-   (VWAP + GEX)     ABSORPTION)                gex_modifier)
-        |                  |
-        +------+-----------+
-               |  Signal verdict
-               v
-         MacroCalendarFilter -- blocked? -> drop signal
-               |
-               v
-       CCXTBroker / PaperTrader
-       (Post-Only limit -> fill)
-               |
-     +---------+----------+
-     v                    v
- SignalLogger       DiscordAlerter
- (Parquet + log)   (webhook alert)
-               |
-               v
-         CLIDashboard
-     (Rich terminal UI)
-      + background tasks:
-        MacroCalendarFilter
-        CryptoSentimentAnalyzer
+```mermaid
+flowchart TD
+    subgraph Data Ingestion
+        HL[Hyperliquid WebSocket] -->|L2Book 20-level, Trades| Streamer(HyperliquidStreamer)
+        Streamer -->|BBO, CVD, OFI| Logger(TickLogger)
+        Logger -->|Parquet| Storage[(Local Storage)]
+        Deribit[Deribit REST] -->|GEX snapshot| GEXFile[(data/live_gex.json)]
+    end
+
+    subgraph Signal Pipeline
+        Streamer -->|tick| Engine(LiveSignalEngine)
+        Engine -->|CVD + OFI| Detector(MicrostructureDetector)
+        Engine -->|price, VWAP| Confluence(SuperConfluenceFilter)
+        GEXFile -->|strike map| GEX(GexRiskManager)
+        GEX --> Confluence
+        Macro(MacroCalendarFilter) -->|blackout gate| Engine
+        Sentiment(CryptoSentimentAnalyzer) -->|net_score| Sizer(PositionSizer)
+        Confluence -->|verdict| Engine
+    end
+
+    subgraph Execution & Risk Guards
+        Engine -->|valid signal| Broker(CCXTBroker / PaperTrader)
+        Broker -->|signed order| HL_Exec[Hyperliquid Exchange]
+        Broker -.->|alert| Discord(Discord Webhook)
+        Broker --> SigLog(SignalLogger)
+        Broker --> State[(data/live_state.json)]
+        Broker -.->|circuit breaker / SL| KillSwitch[Emergency Kill-Switch]
+    end
+
+    subgraph Visualizer
+        Streamer -.->|book updates| CLI(Rich CLIDashboard)
+        Macro -.->|macro status| CLI
+        Sentiment -.->|FinBERT score| CLI
+    end
+
+    classDef main fill:#1e1e2e,stroke:#89b4fa,stroke-width:2px,color:#cdd6f4;
+    classDef storage fill:#313244,stroke:#a6e3a1,stroke-width:2px,color:#cdd6f4;
+    classDef ext fill:#11111b,stroke:#f38ba8,stroke-width:2px,color:#cdd6f4;
+
+    class Streamer,Engine,Detector,Confluence,GEX,Broker,Logger,CLI,Sizer,Macro,Sentiment,SigLog main;
+    class Storage,GEXFile,State storage;
+    class HL,HL_Exec,Discord,Deribit,KillSwitch ext;
 ```
 
 ---
@@ -137,8 +141,18 @@ weighted `net_score` suitable for use as a `gex_modifier` input.
 **`PaperTrader`** — an `ExecutionEngine` implementation that simulates fills
 without touching the exchange. State is persisted to disk between restarts.
 
-**`CCXTBroker`** — CCXT-backed live execution engine for Hyperliquid. Default
-order type is Post-Only limit. Supports testnet via `USE_TESTNET=True`.
+**`CCXTBroker`** — CCXT-backed live execution engine for Hyperliquid L1.
+Features:
+- Cryptographic L1 EIP-712 signing with Agent Wallet (no withdrawal permissions)
+- Clock synchronization via `load_time_difference()` and `adjustForTimeDifference`
+- 0.1% slippage tolerance budget and configurable default leverage
+- Hard limit order size clamp (`MAX_ORDER_SIZE_BTC`)
+- Dual-format bracket orders (native Hyperliquid trigger SL/TP)
+- Safe fallback bracket order cancellation (`fetch_open_orders` + `cancel_order`)
+- Real-time equity drawdown circuit breaker (monitors Unrealized PnL in `update_tick`)
+- Consecutive error loop circuit breaker (immediate cooldown trigger)
+- REST ground truth reconciliation (`_reconcile_positions_with_exchange`)
+- Supports testnet via `USE_TESTNET=True`
 
 **`SignalLogger`** — appends structured signal events (entry, exit, PnL) to
 both a Parquet log and `app.log`.

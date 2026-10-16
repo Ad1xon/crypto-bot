@@ -62,6 +62,9 @@ async def _build_execution_engine() -> ExecutionEngine:
             api_key=broker_cfg.api_key,
             api_secret=broker_cfg.api_secret,
             testnet=broker_cfg.testnet,
+            max_order_size_btc=SETTINGS.max_order_size_btc,
+            default_leverage=SETTINGS.default_leverage,
+            slippage_tolerance_pct=SETTINGS.slippage_tolerance_pct,
         )
         await engine.initialize()
         _LOG.critical(
