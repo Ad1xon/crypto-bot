@@ -311,3 +311,12 @@ class TestKillSwitch:
 
         assert ok is True
         assert mock_exchange.cancel_order.call_count == 2
+
+    async def test_fetch_balance_uses_symbol_settle_currency(
+        self, clean_broker: CCXTBroker, mock_exchange: MagicMock
+    ) -> None:
+        """Hyperliquid perps settle in USDC — balance must be read from USDC, not USDT."""
+        mock_exchange.fetch_balance = AsyncMock(return_value={"free": {"USDC": 1234.5, "USDT": 0.0}})
+        clean_broker._symbol = "BTC/USDC:USDC"
+
+        assert await clean_broker.fetch_balance() == 1234.5

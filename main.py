@@ -1,7 +1,7 @@
 """V3-Crypto-Quant entry point.
 
 Set ``LIVE_MODE=True`` in ``.env`` to route signals through ``CCXTBroker``
-(real Bybit orders). The default ``LIVE_MODE=False`` uses ``PaperTrader``.
+(real Hyperliquid orders). The default ``LIVE_MODE=False`` uses ``PaperTrader``.
 """
 
 from __future__ import annotations
@@ -66,6 +66,8 @@ async def _build_execution_engine() -> ExecutionEngine:
             api_key=broker_cfg.api_key,
             api_secret=broker_cfg.api_secret,
             testnet=broker_cfg.testnet,
+            # Hyperliquid perps are USDC-margined: CCXT unified symbol is BASE/USDC:USDC
+            symbol=f"{SETTINGS.hyperliquid_ws.symbol}/USDC:USDC",
             max_order_size_btc=SETTINGS.max_order_size_btc,
             default_leverage=SETTINGS.default_leverage,
             slippage_tolerance_pct=SETTINGS.slippage_tolerance_pct,

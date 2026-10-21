@@ -120,15 +120,17 @@ direct GEX-only checks and `get_gex_map()` for passing the full map to
 `SuperConfluenceFilter`.
 
 **`PositionSizer`** — Half-Kelly criterion sizing, hard-capped at 5% of
-account equity. Accepts a `gex_modifier` (0.0-1.0) to scale down position size
-in adverse gamma regimes.
+account equity. Risk is scaled by a `gex_modifier` (0.8–1.2 by GEX magnitude)
+and a sentiment modifier (0.5–1.2) derived from FinBERT `net_score` relative
+to signal direction.
 
 **`MacroCalendarFilter`** — fetches this week's USD high-impact events from the
 ForexFactory JSON feed. Blocks trading +/-15 minutes around each event.
+Re-fetched automatically when the UTC date changes.
 
 **`CryptoSentimentAnalyzer`** — fetches RSS feeds (CoinTelegraph, CoinDesk)
-and classifies headlines with **ProsusAI/FinBERT** (lazily loaded). Returns a
-weighted `net_score` suitable for use as a `gex_modifier` input.
+and classifies headlines with **ProsusAI/FinBERT** (lazily loaded). Its
+`net_score` is passed with each approved signal into `PositionSizer`.
 
 ---
 

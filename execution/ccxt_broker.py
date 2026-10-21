@@ -324,10 +324,15 @@ class CCXTBroker(ExecutionEngine):
         return current_time - self._last_trade_time < self._cooldown_s
 
     async def fetch_balance(self) -> float:
-        """Return free USDT balance via async REST call."""
+        """Return free collateral balance (settle currency of the symbol) via async REST call.
+
+        Hyperliquid perps settle in USDC (``BTC/USDC:USDC``); hardcoding USDT would
+        report a zero balance and silently abort every signal.
+        """
+        collateral: str = self._symbol.split(":")[-1] if ":" in self._symbol else self._symbol.split("/")[-1]
         try:
             raw: dict = await self._exchange.fetch_balance()
-            return float(raw["free"].get("USDT", 0.0))
+            return float(raw["free"].get(collateral, 0.0))
         except ccxt.RateLimitExceeded as exc:
             _LOG.warning("[CCXT BROKER] Rate limit hit fetching balance — %s", exc)
             return 0.0
