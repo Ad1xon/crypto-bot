@@ -19,6 +19,11 @@ class MacroCalendarFilter:
         self._events: list[datetime] = []
         self._last_fetch: datetime | None = None
 
+    @property
+    def last_fetch(self) -> datetime | None:
+        """UTC timestamp of the most recent calendar fetch."""
+        return self._last_fetch
+
     def _fetch_sync(self) -> list[datetime]:
         events = []
         try:

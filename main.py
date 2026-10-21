@@ -10,6 +10,7 @@ import asyncio
 import logging
 import signal
 import sys
+from datetime import UTC, datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
@@ -19,6 +20,8 @@ from execution.ccxt_broker import CCXTBroker
 from execution.interfaces import ExecutionEngine
 from execution.live_engine import PaperTrader
 from quant_models.macro_filter import MacroCalendarFilter
+from quant_models.position_sizer import PositionSizer
+from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
 from visualizer.cli_dashboard import CLIDashboard
 
 _LOG: logging.Logger = logging.getLogger(__name__)
@@ -55,6 +58,7 @@ def _configure_logging(
 
 async def _build_execution_engine() -> ExecutionEngine:
     """Construct and initialise the execution engine selected by ``LIVE_MODE``."""
+    position_sizer = PositionSizer()
     if SETTINGS.live_mode:
         broker_cfg = SETTINGS.build_broker()
         engine = CCXTBroker(
@@ -65,6 +69,7 @@ async def _build_execution_engine() -> ExecutionEngine:
             max_order_size_btc=SETTINGS.max_order_size_btc,
             default_leverage=SETTINGS.default_leverage,
             slippage_tolerance_pct=SETTINGS.slippage_tolerance_pct,
+            position_sizer=position_sizer,
         )
         await engine.initialize()
         _LOG.critical(
@@ -74,7 +79,7 @@ async def _build_execution_engine() -> ExecutionEngine:
         return engine
 
     _LOG.info("Paper-trading mode active — no real orders will be submitted.")
-    return PaperTrader()
+    return PaperTrader(position_sizer=position_sizer)
 
 
 def _register_sigterm(loop: asyncio.AbstractEventLoop, main_task: asyncio.Task) -> None:
@@ -90,15 +95,21 @@ def _register_sigterm(loop: asyncio.AbstractEventLoop, main_task: asyncio.Task) 
         pass
 
 
-async def _update_background_tasks(dashboard: CLIDashboard, macro_filter: MacroCalendarFilter) -> None:
+async def _update_background_tasks(
+    dashboard: CLIDashboard,
+    macro_filter: MacroCalendarFilter,
+    sentiment_analyzer: CryptoSentimentAnalyzer,
+) -> None:
     """Periodically fetch macro and sentiment data and update the dashboard."""
-    from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
-
-    sentiment_analyzer = CryptoSentimentAnalyzer()
-
     while True:
         try:
-            # Update sentiment (takes a few seconds)
+            # Re-fetch macro calendar if UTC day has changed or initial fetch missing
+            now_utc = datetime.now(UTC)
+            if macro_filter.last_fetch is None or now_utc.date() != macro_filter.last_fetch.date():
+                _LOG.info("Refreshing macro calendar for UTC date %s", now_utc.date())
+                await macro_filter.fetch_events()
+
+            # Update sentiment (runs FinBERT in thread pool)
             score = await sentiment_analyzer.update_sentiment()
 
             allowed = macro_filter.is_trading_allowed()
@@ -123,6 +134,8 @@ async def _run() -> None:
     macro_filter = MacroCalendarFilter()
     await macro_filter.fetch_events()
 
+    sentiment_analyzer = CryptoSentimentAnalyzer()
+
     engine: ExecutionEngine = await _build_execution_engine()
     dashboard = CLIDashboard(symbol=SETTINGS.hyperliquid_ws.symbol)
     streamer = HyperliquidStreamer(
@@ -130,10 +143,11 @@ async def _run() -> None:
         dashboard=dashboard,
         execution_engine=engine,
         macro_filter=macro_filter,
+        sentiment_analyzer=sentiment_analyzer,
     )
 
     # Start the background task
-    bg_task = asyncio.create_task(_update_background_tasks(dashboard, macro_filter))
+    bg_task = asyncio.create_task(_update_background_tasks(dashboard, macro_filter, sentiment_analyzer))
 
     try:
         await streamer.start()

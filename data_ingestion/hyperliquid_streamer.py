@@ -19,6 +19,7 @@ from execution.interfaces import ExecutionEngine
 from execution.live_engine import LiveSignalEngine
 from quant_models.gex_risk_manager import GexRiskManager
 from quant_models.macro_filter import MacroCalendarFilter
+from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
 from quant_models.smc_detectors import MicrostructureDetector
 from visualizer.cli_dashboard import CLIDashboard
 
@@ -34,6 +35,7 @@ class HyperliquidStreamer(DataStreamer):
         dashboard: CLIDashboard | None = None,
         execution_engine: ExecutionEngine | None = None,
         macro_filter: MacroCalendarFilter | None = None,
+        sentiment_analyzer: CryptoSentimentAnalyzer | None = None,
         auto_reset_cvd: bool = True,
     ) -> None:
         self._config = config
@@ -56,6 +58,7 @@ class HyperliquidStreamer(DataStreamer):
             gex_manager=GexRiskManager(),
             execution_engine=execution_engine,
             macro_filter=macro_filter,
+            sentiment_analyzer=sentiment_analyzer,
         )
         # Hyperliquid subscriptions
         self._subscribe_payload = json.dumps(

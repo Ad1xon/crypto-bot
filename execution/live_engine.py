@@ -22,6 +22,7 @@ from execution.signal_logger import SignalAuditLogger
 from quant_models.gex_risk_manager import GexRiskManager
 from quant_models.macro_filter import MacroCalendarFilter
 from quant_models.position_sizer import PositionSizer
+from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
 from quant_models.smc_detectors import MicrostructureDetector
 from quant_models.super_confluence import (
     ConfluenceVerdict,
@@ -193,6 +194,7 @@ class PaperTrader(ExecutionEngine):
         current_time: float,
         gex_value: float = 0.0,
         signal_ts: float | None = None,
+        sentiment_score: float = 0.0,
     ) -> None:
         """Open a new position for the signal, subject to kill-switch and cooldown guards."""
         if self._session_pnl <= -self._max_daily_loss_usdt:
@@ -222,14 +224,20 @@ class PaperTrader(ExecutionEngine):
             )
             return
 
-        self._open_position(signal_type, current_price)
+        self._open_position(signal_type, current_price, gex_value=gex_value, sentiment_score=sentiment_score)
         self._save_state()
         if signal_ts is not None:
             fill_ts: float = time.perf_counter()
             latency_ms: float = (fill_ts - signal_ts) * 1000.0
             _LOG.info("Order executed. Latency: %.2f ms", latency_ms)
 
-    def _open_position(self, signal_type: str, price: float) -> None:
+    def _open_position(
+        self,
+        signal_type: str,
+        price: float,
+        gex_value: float = 0.0,
+        sentiment_score: float = 0.0,
+    ) -> None:
         """Record entry, apply slippage, and deduct the entry taker fee."""
         self._position = "LONG" if signal_type == _BULLISH else "SHORT"
 
@@ -255,9 +263,13 @@ class PaperTrader(ExecutionEngine):
             self._active_activation_dist = self._trailing_activation_usdt
 
         if self._position_sizer is not None:
+            gex_mod = 1.0 if gex_value >= 0.0 else 0.8
             self._position_btc = self._position_sizer.calculate_position_btc(
                 account_balance_usdt=self._balance,
                 sl_distance_usdt=self._active_sl_dist,
+                gex_modifier=gex_mod,
+                sentiment_score=sentiment_score,
+                signal_type=signal_type,
             )
             actual_size_usdt: float = self._position_btc * self._entry_price
         else:
@@ -410,6 +422,7 @@ class LiveSignalEngine:
         session_vwap: SessionVwap | None = None,
         execution_engine: ExecutionEngine | None = None,
         macro_filter: MacroCalendarFilter | None = None,
+        sentiment_analyzer: CryptoSentimentAnalyzer | None = None,
         audit_logger: SignalAuditLogger | None = None,
     ) -> None:
         self._detector: MicrostructureDetector = (
@@ -420,6 +433,7 @@ class LiveSignalEngine:
         self._session_vwap: SessionVwap = session_vwap if session_vwap is not None else SessionVwap()
         self.execution_engine: ExecutionEngine = execution_engine if execution_engine is not None else PaperTrader()
         self._macro_filter: MacroCalendarFilter | None = macro_filter
+        self._sentiment_analyzer: CryptoSentimentAnalyzer | None = sentiment_analyzer
         self._audit_logger: SignalAuditLogger | None = audit_logger
         self._window: collections.deque[dict] = collections.deque(maxlen=_DEQUE_MAXLEN)
         self._tick_task: asyncio.Task[None] | None = None
@@ -547,6 +561,9 @@ class LiveSignalEngine:
             return
 
         if verdict.allowed:
+            sentiment_score: float = (
+                self._sentiment_analyzer.current_score.net_score if self._sentiment_analyzer is not None else 0.0
+            )
             self._signal_task = asyncio.create_task(
                 self.execution_engine.execute_signal(
                     signal_type,
@@ -554,6 +571,7 @@ class LiveSignalEngine:
                     current_time,
                     verdict.gex_value,
                     signal_ts,
+                    sentiment_score,
                 )
             )
 

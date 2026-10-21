@@ -34,6 +34,20 @@ async def test_macro_filter_logic():
 
 
 @pytest.mark.asyncio
+async def test_macro_filter_last_fetch():
+    filter_ = MacroCalendarFilter()
+    assert filter_.last_fetch is None
+
+    now = datetime.now(UTC)
+    with patch.object(filter_, "_fetch_sync") as mock_fetch:
+        mock_fetch.return_value = [now]
+        await filter_.fetch_events()
+
+        assert filter_.last_fetch is not None
+        assert abs((filter_.last_fetch - now).total_seconds()) < 5.0
+
+
+@pytest.mark.asyncio
 async def test_live_signal_engine_macro_gate():
     from unittest.mock import AsyncMock, MagicMock
 

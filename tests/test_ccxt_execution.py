@@ -216,6 +216,30 @@ class TestKillSwitch:
         # call_args[1] is amount
         assert abs(call_args[1] - (500.0 / 150.0)) < 1e-4
 
+    async def test_execute_signal_applies_sentiment_modifier(
+        self, clean_broker: CCXTBroker, mock_exchange: MagicMock
+    ) -> None:
+        """Adverse sentiment scales down position size via Kelly sizer."""
+        from quant_models.position_sizer import PositionSizer
+
+        sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)
+        clean_broker._position_sizer = sizer
+
+        # Balance = 10000, risk = 500, SL = 150.
+        # sentiment_score = -2.0 for BULLISH -> modifier 0.8 -> risk = 400.
+        # Expected size: 400 / 150 = 2.666667 BTC
+        await clean_broker.execute_signal(
+            signal_type=_BULLISH,
+            current_price=_ENTRY_PRICE,
+            current_time=_CURRENT_TIME,
+            gex_value=0.02,
+            sentiment_score=-2.0,
+        )
+
+        mock_exchange.create_market_buy_order.assert_called_once()
+        call_args = mock_exchange.create_market_buy_order.call_args[0]
+        assert abs(call_args[1] - (400.0 / 150.0)) < 1e-4
+
     async def test_order_size_clamped_to_max_order_size_btc(
         self, clean_broker: CCXTBroker, mock_exchange: MagicMock
     ) -> None:

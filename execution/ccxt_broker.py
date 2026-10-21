@@ -524,6 +524,7 @@ class CCXTBroker(ExecutionEngine):
         current_time: float,
         gex_value: float = 0.0,
         signal_ts: float | None = None,
+        sentiment_score: float = 0.0,
     ) -> None:
         """Submit a GEX-sized bracket entry order, subject to all safety guards."""
         if self._system_fault:
@@ -600,9 +601,16 @@ class CCXTBroker(ExecutionEngine):
                 account_balance_usdt=current_balance,
                 sl_distance_usdt=effective_sl_dist,
                 gex_modifier=multiplier,
+                sentiment_score=sentiment_score,
+                signal_type=signal_type,
             )
         else:
-            risk_capital: float = current_balance * self._risk_per_trade_pct
+            sentiment_mod: float = (
+                PositionSizer.calculate_sentiment_modifier(signal_type, sentiment_score)
+                if abs(sentiment_score) > 1e-6
+                else 1.0
+            )
+            risk_capital: float = current_balance * self._risk_per_trade_pct * sentiment_mod
             base_size_btc = (risk_capital / effective_sl_dist) * multiplier
 
         final_size_btc: float = float(self._exchange.amount_to_precision(self._symbol, base_size_btc))

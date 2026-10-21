@@ -27,4 +27,5 @@ class ExecutionEngine(abc.ABC):
         current_time: float,
         gex_value: float = 0.0,
         signal_ts: float | None = None,
+        sentiment_score: float = 0.0,
     ) -> None: ...
