@@ -195,11 +195,17 @@ def write_atomic(data: dict, output_path: pathlib.Path) -> None:
     """Serialise data to JSON and replace output_path atomically via rename.
 
     Writing to a temporary sibling file before renaming ensures the reader
-    never observes a partially written file.
+    never observes a partially written file. Includes Windows retry for file lock contention.
     """
     tmp_path = output_path.with_suffix(".tmp")
     with open(tmp_path, "w", encoding="utf-8") as fh:
         json.dump(data, fh, separators=(",", ":"))
+    for _ in range(5):
+        try:
+            tmp_path.replace(output_path)
+            return
+        except PermissionError:
+            time.sleep(0.05)
     tmp_path.replace(output_path)
 
 
@@ -225,7 +231,7 @@ def should_append_history(last_written_s: float | None, now_s: float, interval_s
 def main() -> None:
     """Entry point: poll Deribit in a loop and persist GEX snapshots."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Deribit GEX client started — writing to {OUTPUT_FILE}")
+    print(f"Deribit GEX client started - writing to {OUTPUT_FILE}")
 
     last_history_s: float | None = None
 
@@ -244,11 +250,11 @@ def main() -> None:
                 append_history(payload, HISTORY_DIR)
                 last_history_s = now_s
             ts = datetime.now(UTC).strftime("%H:%M:%S")
-            print(f"[{ts}] GEX snapshot written — {len(gex)} strikes, spot ≈ {spot:,.0f}")
+            print(f"[{ts}] GEX snapshot written - {len(gex)} strikes, spot ~ {spot:,.0f}")
 
         except requests.exceptions.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else "?"
-            print(f"HTTP {status} error: {exc} — backing off {RATE_LIMIT_BACKOFF_S}s")
+            print(f"HTTP {status} error: {exc} - backing off {RATE_LIMIT_BACKOFF_S}s")
             time.sleep(RATE_LIMIT_BACKOFF_S)
             continue
 
