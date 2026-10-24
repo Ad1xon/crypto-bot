@@ -90,6 +90,22 @@ class AlertingConfig:
 
 
 @dataclass(frozen=True)
+class StrategyConfig:
+    """Exit distances and execution costs shared by live, paper and backtest.
+
+    TP/SL are fractions of entry price (a fixed USDT distance means different risk at
+    $53k and $85k). The 2:1 reward/risk and the absolute levels are starting points to be
+    swept on collected data, not validated values. Fees are Hyperliquid's base perp tier
+    (taker 0.045%); slippage is the expected, not worst-case, market-order cost.
+    """
+
+    sl_pct: float = field(default_factory=lambda: float(os.getenv("SL_PCT", "0.002")))
+    tp_pct: float = field(default_factory=lambda: float(os.getenv("TP_PCT", "0.004")))
+    taker_fee_rate: float = field(default_factory=lambda: float(os.getenv("TAKER_FEE_RATE", "0.00045")))
+    slippage_bps: float = field(default_factory=lambda: float(os.getenv("SLIPPAGE_BPS", "2.0")))
+
+
+@dataclass(frozen=True)
 class AppConfig:
     """Top-level application configuration composed of sub-configs."""
 
@@ -98,6 +114,7 @@ class AppConfig:
     tick_logger: TickLoggerConfig = field(default_factory=TickLoggerConfig)
     deribit: DeribitConfig = field(default_factory=DeribitConfig)
     alerting: AlertingConfig = field(default_factory=AlertingConfig)
+    strategy: StrategyConfig = field(default_factory=StrategyConfig)
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     log_file: str = field(default_factory=lambda: os.getenv("LOG_FILE", "logs/app.log"))
     live_mode: bool = field(

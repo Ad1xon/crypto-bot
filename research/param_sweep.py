@@ -27,7 +27,7 @@ import itertools
 import json
 import pathlib
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Final
 
@@ -38,11 +38,14 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from quant_models.gex_risk_manager import GexRiskManager, load_gex_map_from_file
+from config.settings import SETTINGS
+from quant_models.gex_risk_manager import GexHistory, GexRiskManager
+from quant_models.position_sizer import PositionSizer
 from quant_models.smc_detectors import MicrostructureDetector
 from quant_models.super_confluence import SuperConfluenceFilter
 from research.data_loader import load_merged_frame
 from research.event_backtester import (
+    MIN_TRADES_FOR_SIGNIFICANCE,
     BacktestEngine,
     PerformanceReport,
     TradeConfig,
@@ -51,7 +54,7 @@ from research.event_backtester import (
 
 _CONSOLE: Final[Console] = Console()
 _DEFAULT_DATA_DIR: Final[pathlib.Path] = pathlib.Path("data")
-_DEFAULT_GEX_FILE: Final[pathlib.Path] = _DEFAULT_DATA_DIR / "live_gex.json"
+_DEFAULT_GEX_HISTORY_DIR: Final[pathlib.Path] = _DEFAULT_DATA_DIR / "gex_history"
 
 
 @dataclass(frozen=True)
@@ -82,9 +85,11 @@ class SweepResult:
 def run_backtest_slice(
     df: pd.DataFrame,
     params: SweepParams,
-    gex_manager: GexRiskManager,
+    gex_manager: GexRiskManager | None,
     base_config: TradeConfig,
     confluence: SuperConfluenceFilter | None = None,
+    position_sizer: PositionSizer | None = None,
+    gex_history: GexHistory | None = None,
 ) -> PerformanceReport:
     """Run detection and event-driven backtesting on a DataFrame slice.
 
@@ -94,18 +99,14 @@ def run_backtest_slice(
     if df.empty or len(df) < params.div_window:
         return compute_performance_report([], [base_config.initial_balance], base_config)
 
-    config = TradeConfig(
-        initial_balance=base_config.initial_balance,
-        position_size_usdt=base_config.position_size_usdt,
+    config = replace(
+        base_config,
         take_profit_usdt=params.tp_usdt if params.tp_usdt is not None else base_config.take_profit_usdt,
         stop_loss_usdt=params.sl_usdt if params.sl_usdt is not None else base_config.stop_loss_usdt,
         tp_pct=params.tp_pct,
         sl_pct=params.sl_pct,
         trailing_activation_pct=params.trailing_activation_pct,
         trailing_activation_usdt=params.trailing_activation_usdt,
-        fee_rate=base_config.fee_rate,
-        cooldown_ms=base_config.cooldown_ms,
-        max_duration_s=base_config.max_duration_s,
     )
 
     detector = MicrostructureDetector(
@@ -126,6 +127,8 @@ def run_backtest_slice(
         signal_map=signal_map,
         gex_manager=gex_manager,
         confluence=confluence,
+        position_sizer=position_sizer,
+        gex_history=gex_history,
     )
 
     for row in df_prepared.itertuples(index=False):
@@ -134,13 +137,18 @@ def run_backtest_slice(
     return compute_performance_report(engine.trade_records, engine.equity_curve, config)
 
 
-def evaluate_robustness(is_rep: PerformanceReport, oos_rep: PerformanceReport) -> tuple[float, str]:
+def evaluate_robustness(
+    is_rep: PerformanceReport, oos_rep: PerformanceReport, min_trades: int = 2
+) -> tuple[float, str]:
     """Classify Walk-Forward robustness based on IS vs OOS metric persistence.
+
+    Either partition with fewer than *min_trades* trades is INSUFFICIENT_TRADES: its
+    profit factor and Sharpe carry no statistical weight.
 
     Returns:
         (robustness_score, status_label)
     """
-    if is_rep.total_trades < 2 or oos_rep.total_trades < 2:
+    if is_rep.total_trades < min_trades or oos_rep.total_trades < min_trades:
         return (0.0, "INSUFFICIENT_TRADES")
 
     if oos_rep.profit_factor < 1.0 or oos_rep.net_pnl < 0:
@@ -159,10 +167,13 @@ def evaluate_robustness(is_rep: PerformanceReport, oos_rep: PerformanceReport) -
 def run_param_sweep(
     df: pd.DataFrame,
     param_grid: list[SweepParams],
-    gex_manager: GexRiskManager,
+    gex_manager: GexRiskManager | None = None,
     split_ratio: float = 0.70,
     base_config: TradeConfig | None = None,
     confluence: SuperConfluenceFilter | None = None,
+    position_sizer: PositionSizer | None = None,
+    gex_history: GexHistory | None = None,
+    min_trades: int = 2,
 ) -> list[SweepResult]:
     """Execute grid search across parameter combinations with chronological IS/OOS split."""
     if base_config is None:
@@ -175,9 +186,13 @@ def run_param_sweep(
     results: list[SweepResult] = []
 
     for params in param_grid:
-        is_report = run_backtest_slice(df_train, params, gex_manager, base_config, confluence)
-        oos_report = run_backtest_slice(df_test, params, gex_manager, base_config, confluence)
-        score, status = evaluate_robustness(is_report, oos_report)
+        is_report = run_backtest_slice(
+            df_train, params, gex_manager, base_config, confluence, position_sizer, gex_history
+        )
+        oos_report = run_backtest_slice(
+            df_test, params, gex_manager, base_config, confluence, position_sizer, gex_history
+        )
+        score, status = evaluate_robustness(is_report, oos_report, min_trades)
 
         results.append(
             SweepResult(
@@ -295,10 +310,12 @@ def render_sweep_table(results: list[SweepResult], top_n: int = 15, console: Con
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Walk-Forward Parameter Sweep for SMC Crypto-Quant")
     parser.add_argument("--data-dir", type=pathlib.Path, default=_DEFAULT_DATA_DIR)
-    parser.add_argument("--gex-file", type=pathlib.Path, default=_DEFAULT_GEX_FILE)
+    parser.add_argument("--symbol", type=str, default=None, help="Symbol filter, e.g. btc -> bbo_btc_* / trades_btc_*")
+    parser.add_argument("--gex-history-dir", type=pathlib.Path, default=_DEFAULT_GEX_HISTORY_DIR)
     parser.add_argument("--split-ratio", type=float, default=0.70, help="Train/test chronological split ratio")
     parser.add_argument("--balance", type=float, default=10_000.0)
-    parser.add_argument("--position-usdt", type=float, default=1_000.0)
+    parser.add_argument("--position-usdt", type=float, default=None, help="Fixed notional; omit to use PositionSizer")
+    parser.add_argument("--min-trades", type=int, default=MIN_TRADES_FOR_SIGNIFICANCE)
     parser.add_argument("--top-n", type=int, default=15)
     parser.add_argument("--export-json", type=pathlib.Path, default=None, help="Export sweep results to JSON")
     return parser.parse_args()
@@ -307,20 +324,22 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
 
-    if not args.gex_file.exists():
-        _CONSOLE.print(f"[red]GEX snapshot not found: {args.gex_file}[/red]")
+    if not args.gex_history_dir.is_dir():
+        _CONSOLE.print(f"[red]No GEX history in {args.gex_history_dir} - run data_ingestion/deribit_client.py.[/red]")
+        return
+    gex_history = GexHistory.from_dir(args.gex_history_dir)
+    if len(gex_history) == 0:
+        _CONSOLE.print(f"[red]GEX history is empty: {args.gex_history_dir}[/red]")
         return
 
-    gex_map = load_gex_map_from_file(args.gex_file)
-    if not gex_map:
-        _CONSOLE.print(f"[red]GEX snapshot is empty: {args.gex_file}[/red]")
-        return
-
-    gex_manager = GexRiskManager(gex_map=gex_map)
     confluence = SuperConfluenceFilter()
 
     _CONSOLE.print("[dim]Loading merged tick dataset ...[/dim]")
-    df = load_merged_frame(args.data_dir)
+    try:
+        df = load_merged_frame(args.data_dir, symbol=args.symbol)
+    except ValueError as exc:
+        _CONSOLE.print(f"[red]{exc}[/red]")
+        return
 
     grid = default_param_grid()
     _CONSOLE.print(
@@ -330,16 +349,23 @@ def main() -> None:
 
     base_config = TradeConfig(
         initial_balance=args.balance,
-        position_size_usdt=args.position_usdt,
+        position_size_usdt=args.position_usdt if args.position_usdt is not None else 1_000.0,
+        fee_rate=SETTINGS.strategy.taker_fee_rate,
+        slippage_bps=SETTINGS.strategy.slippage_bps,
+        max_order_size_btc=SETTINGS.max_order_size_btc,
+        max_leverage=float(SETTINGS.default_leverage),
     )
 
     results = run_param_sweep(
         df=df,
         param_grid=grid,
-        gex_manager=gex_manager,
+        gex_manager=None,
         split_ratio=args.split_ratio,
         base_config=base_config,
         confluence=confluence,
+        position_sizer=PositionSizer() if args.position_usdt is None else None,
+        gex_history=gex_history,
+        min_trades=args.min_trades,
     )
 
     _CONSOLE.print()

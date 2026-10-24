@@ -81,3 +81,35 @@ def test_position_sizing_with_sentiment():
         signal_type="BULLISH_ABSORPTION",
     )
     assert abs(pos_btc - 2.0) < 1e-5
+
+
+def test_gex_size_multiplier():
+    from quant_models.position_sizer import gex_size_multiplier
+
+    assert gex_size_multiplier(0.0) == 0.8
+    assert gex_size_multiplier(0.005) == 0.8
+    assert gex_size_multiplier(-0.009) == 0.8
+    assert gex_size_multiplier(0.01) == 1.0
+    assert gex_size_multiplier(-0.03) == 1.0
+    assert gex_size_multiplier(0.049) == 1.0
+    assert gex_size_multiplier(0.05) == 1.2
+    assert gex_size_multiplier(-0.10) == 1.2
+
+
+def test_cap_position_btc():
+    from quant_models.position_sizer import cap_position_btc
+
+    # Base uncapped
+    assert cap_position_btc(1.5, price=50000.0, balance_usdt=10000.0) == 1.5
+
+    # Negative size clamped to 0
+    assert cap_position_btc(-0.5, price=50000.0, balance_usdt=10000.0) == 0.0
+
+    # Max order size cap
+    assert cap_position_btc(1.5, price=50000.0, balance_usdt=10000.0, max_order_size_btc=0.05) == 0.05
+
+    # Leverage cap: balance 10,000 * 5x = 50,000 notional / price 50,000 = 1.0 BTC
+    assert cap_position_btc(2.0, price=50000.0, balance_usdt=10000.0, max_leverage=5.0) == 1.0
+
+    # Both caps applied, tighter wins
+    assert cap_position_btc(2.0, price=50000.0, balance_usdt=10000.0, max_order_size_btc=0.05, max_leverage=5.0) == 0.05

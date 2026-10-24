@@ -1,5 +1,49 @@
 from __future__ import annotations
 
+from typing import Final
+
+# Absolute net-GEX magnitudes (Deribit OI-weighted gamma, BTC units) separating weak,
+# normal and strong dealer positioning. Carried over unchanged from the original
+# CCXTBroker constants; not tuned on data.
+GEX_HIGH_THRESHOLD: Final[float] = 0.05
+GEX_LOW_THRESHOLD: Final[float] = 0.01
+
+
+def gex_size_multiplier(gex_value: float) -> float:
+    """Scale risk by nearest-strike GEX magnitude: weak 0.8x, normal 1.0x, strong 1.2x.
+
+    Shared by the live broker, the paper trader and the backtester so all three size
+    identically for the same GEX reading.
+    """
+    magnitude: float = abs(gex_value)
+    if magnitude >= GEX_HIGH_THRESHOLD:
+        return 1.2
+    if magnitude >= GEX_LOW_THRESHOLD:
+        return 1.0
+    return 0.8
+
+
+def cap_position_btc(
+    size_btc: float,
+    price: float,
+    balance_usdt: float,
+    max_order_size_btc: float | None = None,
+    max_leverage: float | None = None,
+) -> float:
+    """Clamp a risk-based size to the hard order limit and the margin the account can support.
+
+    Risk-based sizing divides risk capital by a tight stop distance, so the raw result can
+    be many times account equity in notional. The live broker clamps it with
+    ``MAX_ORDER_SIZE_BTC`` and the exchange enforces margin; paper trading and backtests
+    must apply the same limits or their results are not reachable live.
+    """
+    capped: float = max(size_btc, 0.0)
+    if max_order_size_btc is not None:
+        capped = min(capped, max_order_size_btc)
+    if max_leverage is not None and price > 0.0:
+        capped = min(capped, max(balance_usdt, 0.0) * max_leverage / price)
+    return capped
+
 
 class PositionSizer:
     """Dynamic position sizing using Half-Kelly criterion combined with GEX and sentiment risk."""

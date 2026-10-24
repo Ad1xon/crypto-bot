@@ -21,7 +21,7 @@ from execution.interfaces import ExecutionEngine
 from execution.signal_logger import SignalAuditLogger
 from quant_models.gex_risk_manager import GexRiskManager
 from quant_models.macro_filter import MacroCalendarFilter
-from quant_models.position_sizer import PositionSizer
+from quant_models.position_sizer import PositionSizer, cap_position_btc, gex_size_multiplier
 from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
 from quant_models.smc_detectors import MicrostructureDetector
 from quant_models.super_confluence import (
@@ -59,6 +59,8 @@ class PaperTrader(ExecutionEngine):
         slippage_bps: float = 2.0,
         max_daily_loss_usdt: float = 500.0,
         position_sizer: PositionSizer | None = None,
+        max_order_size_btc: float | None = None,
+        max_leverage: float | None = None,
         audit_logger: SignalAuditLogger | None = None,
         state_file: pathlib.Path = pathlib.Path("data/paper_state.json"),
     ) -> None:
@@ -78,6 +80,8 @@ class PaperTrader(ExecutionEngine):
         self._slippage_bps: float = slippage_bps
         self._max_daily_loss_usdt: float = max_daily_loss_usdt
         self._position_sizer: PositionSizer | None = position_sizer
+        self._max_order_size_btc: float | None = max_order_size_btc
+        self._max_leverage: float | None = max_leverage
         self._audit_logger: SignalAuditLogger | None = audit_logger
 
         self._position: str | None = None
@@ -263,13 +267,19 @@ class PaperTrader(ExecutionEngine):
             self._active_activation_dist = self._trailing_activation_usdt
 
         if self._position_sizer is not None:
-            gex_mod = 1.0 if gex_value >= 0.0 else 0.8
-            self._position_btc = self._position_sizer.calculate_position_btc(
+            raw_size_btc: float = self._position_sizer.calculate_position_btc(
                 account_balance_usdt=self._balance,
                 sl_distance_usdt=self._active_sl_dist,
-                gex_modifier=gex_mod,
+                gex_modifier=gex_size_multiplier(gex_value),
                 sentiment_score=sentiment_score,
                 signal_type=signal_type,
+            )
+            self._position_btc = cap_position_btc(
+                raw_size_btc,
+                self._entry_price,
+                self._balance,
+                self._max_order_size_btc,
+                self._max_leverage,
             )
             actual_size_usdt: float = self._position_btc * self._entry_price
         else:
@@ -363,8 +373,8 @@ class PaperTrader(ExecutionEngine):
             if self._position == "LONG"
             else self._position_btc * (self._entry_price - exit_price)
         )
-        net_pnl: float = gross_pnl - exit_fee
-        self._balance += net_pnl
+        net_pnl: float = gross_pnl - total_fees
+        self._balance += gross_pnl - exit_fee
         self._session_pnl += net_pnl
 
         pnl_sign: str = "+" if net_pnl >= 0.0 else ""

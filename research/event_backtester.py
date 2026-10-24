@@ -15,9 +15,9 @@ Anti-look-ahead guarantees
 
 Usage (from project root)
 --------------------------
-    python research/event_backtester.py
-    python research/event_backtester.py --tp 100 --sl 50 --position-usdt 2000
-    python research/event_backtester.py --gex-file data/live_gex.json
+    python research/event_backtester.py --symbol btc
+    python research/event_backtester.py --symbol btc --tp-pct 0.004 --sl-pct 0.002
+    python research/event_backtester.py --gex-file data/live_gex.json   # smoke test only
 """
 
 from __future__ import annotations
@@ -38,14 +38,18 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from quant_models.gex_risk_manager import GexRiskManager, load_gex_map_from_file
+from config.settings import SETTINGS
+from quant_models.gex_risk_manager import GexHistory, GexRiskManager, load_gex_map_from_file
+from quant_models.position_sizer import PositionSizer, cap_position_btc, gex_size_multiplier
 from quant_models.smc_detectors import MicrostructureDetector
 from quant_models.super_confluence import SuperConfluenceFilter
 from research.data_loader import load_merged_frame
 
 _CONSOLE: Final[Console] = Console()
 _DATA_DIR: Final[pathlib.Path] = pathlib.Path("data")
-_DEFAULT_GEX_FILE: Final[pathlib.Path] = _DATA_DIR / "live_gex.json"
+_DEFAULT_GEX_HISTORY_DIR: Final[pathlib.Path] = _DATA_DIR / "gex_history"
+MIN_TRADES_FOR_SIGNIFICANCE: Final[int] = 30
+_SAMPLE_OK_TRADES: Final[int] = 100
 
 
 @dataclass(frozen=True)
@@ -58,11 +62,14 @@ class TradeConfig:
     stop_loss_usdt: float = 150.0
     tp_pct: float | None = None
     sl_pct: float | None = None
-    fee_rate: float = 0.0004
+    fee_rate: float = 0.00045
+    slippage_bps: float = 0.0
     cooldown_ms: int = 60_000
     trailing_activation_usdt: float = 100.0
     trailing_activation_pct: float | None = None
     max_duration_s: int = 1800
+    max_order_size_btc: float | None = None
+    max_leverage: float | None = None
 
 
 @dataclass(frozen=True)
@@ -135,12 +142,16 @@ class BacktestEngine:
         self,
         config: TradeConfig,
         signal_map: dict[int, str],
-        gex_manager: GexRiskManager,
+        gex_manager: GexRiskManager | None = None,
         confluence: SuperConfluenceFilter | None = None,
+        position_sizer: PositionSizer | None = None,
+        gex_history: GexHistory | None = None,
     ) -> None:
         self._config: TradeConfig = config
         self._signal_map: dict[int, str] = signal_map
-        self._gex: GexRiskManager = gex_manager
+        self._gex: GexRiskManager | None = gex_manager
+        self._gex_history: GexHistory | None = gex_history
+        self._position_sizer: PositionSizer | None = position_sizer
         self._confluence: SuperConfluenceFilter = confluence if confluence is not None else SuperConfluenceFilter()
 
         self._balance: float = config.initial_balance
@@ -180,14 +191,19 @@ class BacktestEngine:
         ):
             signal: str = self._signal_map[row.timestamp_ms]
             vwap: float | None = None if pd.isna(row.vwap) else float(row.vwap)
+            gex_map: dict[float, float] = (
+                self._gex_history.map_at(row.timestamp_ms)
+                if self._gex_history is not None
+                else (self._gex.get_gex_map() if self._gex is not None else {})
+            )
             verdict = self._confluence.evaluate(
                 signal_type=signal,
                 price=float(row.price),
                 vwap=vwap,
-                gex_map=self._gex.get_gex_map(),
+                gex_map=gex_map,
             )
             if verdict.allowed:
-                self._open_position(signal, row.price, row.dt)
+                self._open_position(signal, row.price, row.dt, gex_value=verdict.gex_value)
 
     def _check_exit(self, price: float, dt: pd.Timestamp) -> tuple[str, float] | None:
         """Return ``(outcome, fill_price)`` if any exit condition is met.
@@ -219,22 +235,22 @@ class BacktestEngine:
                 return ("SL", self._current_sl_price)
         return None
 
-    def _open_position(self, signal: str, price: float, dt: pd.Timestamp) -> None:
-        """Record entry metadata and deduct the entry taker fee from balance."""
+    def _open_position(self, signal: str, price: float, dt: pd.Timestamp, gex_value: float = 0.0) -> None:
+        """Record entry with adverse slippage, size the position and deduct the entry taker fee."""
         self._position = "LONG" if signal == "BULLISH_ABSORPTION" else "SHORT"
-        self._entry_price = price
+        slip: float = self._config.slippage_bps / 10_000.0
+        self._entry_price = price * (1.0 + slip) if self._position == "LONG" else price * (1.0 - slip)
         self._entry_time = dt
-        self._position_btc = self._config.position_size_usdt / price
-        self._entry_fee = self._config.fee_rate * self._config.position_size_usdt
-        self._balance -= self._entry_fee
+        self._entry_fee = 0.0
+        self._position_btc = 0.0
 
         if self._config.sl_pct is not None:
-            self._active_sl_dist = price * self._config.sl_pct
-            self._active_tp_dist = price * (
+            self._active_sl_dist = self._entry_price * self._config.sl_pct
+            self._active_tp_dist = self._entry_price * (
                 self._config.tp_pct if self._config.tp_pct is not None else self._config.sl_pct * 2.0
             )
             self._active_activation = (
-                price * self._config.trailing_activation_pct
+                self._entry_price * self._config.trailing_activation_pct
                 if self._config.trailing_activation_pct is not None
                 else self._active_tp_dist / 3.0
             )
@@ -244,9 +260,33 @@ class BacktestEngine:
             self._active_activation = self._config.trailing_activation_usdt
 
         if self._position == "LONG":
-            self._current_sl_price = price - self._active_sl_dist
+            self._current_sl_price = self._entry_price - self._active_sl_dist
         else:
-            self._current_sl_price = price + self._active_sl_dist
+            self._current_sl_price = self._entry_price + self._active_sl_dist
+
+        if self._position_sizer is not None:
+            raw_size_btc: float = self._position_sizer.calculate_position_btc(
+                account_balance_usdt=self._balance,
+                sl_distance_usdt=self._active_sl_dist,
+                gex_modifier=gex_size_multiplier(gex_value),
+            )
+            size_btc: float = cap_position_btc(
+                raw_size_btc,
+                self._entry_price,
+                self._balance,
+                self._config.max_order_size_btc,
+                self._config.max_leverage,
+            )
+        else:
+            size_btc = self._config.position_size_usdt / self._entry_price
+
+        if size_btc <= 0.0:
+            self._position = None
+            return
+
+        self._position_btc = size_btc
+        self._entry_fee = self._config.fee_rate * size_btc * self._entry_price
+        self._balance -= self._entry_fee
 
     def _close_position(
         self,
@@ -255,7 +295,14 @@ class BacktestEngine:
         dt: pd.Timestamp,
         ts_ms: int,
     ) -> None:
-        """Settle the trade, record it, update balance, and start cooldown."""
+        """Settle the trade, record it, update balance, and start cooldown.
+
+        TP fills at the resting limit level; SL and TIME_EXIT are market exits and pay
+        adverse slippage. ``net_pnl`` includes the entry fee already deducted from balance.
+        """
+        if outcome != "TP":
+            slip: float = self._config.slippage_bps / 10_000.0
+            exit_price *= (1.0 - slip) if self._position == "LONG" else (1.0 + slip)
         exit_notional: float = self._position_btc * exit_price
         exit_fee: float = self._config.fee_rate * exit_notional
         total_fees: float = self._entry_fee + exit_fee
@@ -265,8 +312,8 @@ class BacktestEngine:
             if self._position == "LONG"
             else self._position_btc * (self._entry_price - exit_price)
         )
-        net_pnl: float = gross_pnl - exit_fee
-        self._balance += net_pnl
+        net_pnl: float = gross_pnl - total_fees
+        self._balance += gross_pnl - exit_fee
 
         self._trade_records.append(
             TradeRecord(
@@ -306,6 +353,15 @@ class BacktestEngine:
         return self._position is not None
 
 
+def sample_size_label(total_trades: int) -> str:
+    """Classify how much statistical weight a trade count carries."""
+    if total_trades < MIN_TRADES_FOR_SIGNIFICANCE:
+        return "INSUFFICIENT"
+    if total_trades < _SAMPLE_OK_TRADES:
+        return "LOW"
+    return "OK"
+
+
 def compute_performance_report(
     records: list[TradeRecord],
     equity_curve: list[float],
@@ -336,10 +392,8 @@ def compute_performance_report(
             avg_duration_s=0.0,
         )
 
-    wins: list[TradeRecord] = [r for r in records if r.outcome == "TP" or (r.outcome == "TIME_EXIT" and r.net_pnl > 0)]
-    losses: list[TradeRecord] = [
-        r for r in records if r.outcome == "SL" or (r.outcome == "TIME_EXIT" and r.net_pnl <= 0)
-    ]
+    wins: list[TradeRecord] = [r for r in records if r.net_pnl > 0]
+    losses: list[TradeRecord] = [r for r in records if r.net_pnl <= 0]
 
     gross_profit: float = sum(r.net_pnl for r in wins)
     gross_loss: float = abs(sum(r.net_pnl for r in losses))
@@ -421,10 +475,14 @@ def compute_performance_report(
 
 def _render_trade_log(records: list[TradeRecord], config: TradeConfig) -> None:
     """Print a Rich Table with one row per completed trade."""
+    levels: str = (
+        f"TP={config.tp_pct * 100:.2f}%  SL={config.sl_pct * 100:.2f}%"
+        if config.sl_pct is not None and config.tp_pct is not None
+        else f"TP={config.take_profit_usdt:.0f}  SL={config.stop_loss_usdt:.0f}"
+    )
     table = Table(
-        title=f"Trade Log  ({len(records)} trades  |  "
-        f"position={config.position_size_usdt:.0f} USDT  "
-        f"TP={config.take_profit_usdt:.0f}  SL={config.stop_loss_usdt:.0f})",
+        title=f"Trade Log  ({len(records)} trades  |  fee={config.fee_rate * 100:.3f}%  "
+        f"slip={config.slippage_bps:.1f}bps  {levels})",
         box=box.ROUNDED,
         header_style="bold white",
         border_style="bright_blue",
@@ -443,7 +501,7 @@ def _render_trade_log(records: list[TradeRecord], config: TradeConfig) -> None:
     table.add_column("Balance", justify="right", min_width=12)
 
     for r in records:
-        is_win: bool = r.outcome == "TP" or (r.outcome == "TIME_EXIT" and r.net_pnl > 0)
+        is_win: bool = r.net_pnl > 0
         pnl_color: str = "bold green" if r.net_pnl >= 0 else "bold red"
         res_color: str = "bold yellow" if r.outcome == "TIME_EXIT" else "bold green" if is_win else "bold red"
         dir_color: str = "green" if r.direction == "LONG" else "red"
@@ -525,6 +583,16 @@ def _render_performance_panel(report: PerformanceReport) -> None:
     for metric, value in rows:
         table.add_row(metric, value)
 
+    label: str = sample_size_label(report.total_trades)
+    label_color: str = "bold green" if report.total_trades >= _SAMPLE_OK_TRADES else "bold yellow"
+    if report.total_trades < MIN_TRADES_FOR_SIGNIFICANCE:
+        label_color = "bold red"
+    table.add_row("", "")
+    table.add_row(
+        f"Sample size (min {MIN_TRADES_FOR_SIGNIFICANCE})",
+        f"[{label_color}]{label} — {report.total_trades} trades[/{label_color}]",
+    )
+
     _CONSOLE.print(
         Panel(
             table,
@@ -541,11 +609,29 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--data-dir", type=pathlib.Path, default=pathlib.Path("data"))
     parser.add_argument("--z-threshold", type=float, default=2.0)
     parser.add_argument("--div-window", type=int, default=100)
+    parser.add_argument("--symbol", type=str, default=None, help="Symbol filter, e.g. btc -> bbo_btc_* / trades_btc_*")
     parser.add_argument("--balance", type=float, default=10_000.0)
-    parser.add_argument("--position-usdt", type=float, default=1_000.0, help="Fixed notional per trade in USDT")
-    parser.add_argument("--tp", type=float, default=300.0, help="Take Profit distance from entry in USDT")
-    parser.add_argument("--sl", type=float, default=150.0, help="Stop Loss distance from entry in USDT")
-    parser.add_argument("--fee-rate", type=float, default=0.0004, help="Taker fee rate, e.g. 0.0004 = 0.04%%")
+    parser.add_argument(
+        "--position-usdt",
+        type=float,
+        default=None,
+        help="Fixed notional per trade in USDT; omit to size with PositionSizer (Kelly x GEX)",
+    )
+    parser.add_argument(
+        "--tp-pct", type=float, default=SETTINGS.strategy.tp_pct, help="Take Profit as fraction of entry"
+    )
+    parser.add_argument("--sl-pct", type=float, default=SETTINGS.strategy.sl_pct, help="Stop Loss as fraction of entry")
+    parser.add_argument("--tp", type=float, default=None, help="Fixed Take Profit in USDT (overrides --tp-pct)")
+    parser.add_argument("--sl", type=float, default=None, help="Fixed Stop Loss in USDT (overrides --sl-pct)")
+    parser.add_argument(
+        "--fee-rate",
+        type=float,
+        default=SETTINGS.strategy.taker_fee_rate,
+        help="Taker fee rate, e.g. 0.00045 = 0.045%%",
+    )
+    parser.add_argument(
+        "--slippage-bps", type=float, default=SETTINGS.strategy.slippage_bps, help="Adverse slippage per fill in bps"
+    )
     parser.add_argument("--cooldown-s", type=int, default=60, help="Post-trade cooldown in seconds")
     parser.add_argument(
         "--trailing-activation", type=float, default=100.0, help="Profit distance in USDT to move SL to break-even"
@@ -554,10 +640,16 @@ def _parse_args() -> argparse.Namespace:
         "--max-duration-s", type=int, default=1800, help="Maximum trade duration in seconds before time-based exit"
     )
     parser.add_argument(
+        "--gex-history-dir",
+        type=pathlib.Path,
+        default=_DEFAULT_GEX_HISTORY_DIR,
+        help="Directory of gex_YYYYMMDD.jsonl snapshots; GEX is looked up at each signal's timestamp",
+    )
+    parser.add_argument(
         "--gex-file",
         type=pathlib.Path,
-        default=_DEFAULT_GEX_FILE,
-        help="Deribit-style GEX JSON snapshot used by SuperConfluenceFilter",
+        default=None,
+        help="Static GEX snapshot applied to ALL ticks (look-ahead bias; use only for smoke tests)",
     )
     return parser.parse_args()
 
@@ -566,33 +658,58 @@ def main() -> None:
     """Orchestrate data loading, signal generation, backtest loop, and reporting."""
     args = _parse_args()
 
+    use_usdt_levels: bool = args.tp is not None or args.sl is not None
     config = TradeConfig(
         initial_balance=args.balance,
-        position_size_usdt=args.position_usdt,
-        take_profit_usdt=args.tp,
-        stop_loss_usdt=args.sl,
+        position_size_usdt=args.position_usdt if args.position_usdt is not None else 1_000.0,
+        take_profit_usdt=args.tp if args.tp is not None else 300.0,
+        stop_loss_usdt=args.sl if args.sl is not None else 150.0,
+        tp_pct=None if use_usdt_levels else args.tp_pct,
+        sl_pct=None if use_usdt_levels else args.sl_pct,
         fee_rate=args.fee_rate,
+        slippage_bps=args.slippage_bps,
         cooldown_ms=args.cooldown_s * 1_000,
         trailing_activation_usdt=args.trailing_activation,
         max_duration_s=args.max_duration_s,
+        max_order_size_btc=SETTINGS.max_order_size_btc,
+        max_leverage=float(SETTINGS.default_leverage),
     )
 
-    if not args.gex_file.exists():
+    gex_manager: GexRiskManager | None = None
+    gex_history: GexHistory | None = None
+    if args.gex_file is not None:
+        if not args.gex_file.exists():
+            _CONSOLE.print(f"[red]GEX snapshot not found: {args.gex_file}[/red]")
+            return
+        gex_map: dict[float, float] = load_gex_map_from_file(args.gex_file)
+        if not gex_map:
+            _CONSOLE.print(f"[red]GEX snapshot is empty: {args.gex_file}[/red]")
+            return
+        gex_manager = GexRiskManager(gex_map=gex_map)
         _CONSOLE.print(
-            f"[red]GEX snapshot not found: {args.gex_file} — run the Deribit client or pass --gex-file.[/red]"
+            "[bold yellow]WARNING: one static GEX snapshot is applied to the whole history (look-ahead bias). "
+            "Results are not valid for performance claims.[/bold yellow]"
         )
-        return
+    else:
+        if not args.gex_history_dir.is_dir():
+            _CONSOLE.print(
+                f"[red]No GEX history in {args.gex_history_dir} — run data_ingestion/deribit_client.py "
+                "to record it, or pass --gex-file for a smoke test.[/red]"
+            )
+            return
+        gex_history = GexHistory.from_dir(args.gex_history_dir)
+        if len(gex_history) == 0:
+            _CONSOLE.print(f"[red]GEX history is empty: {args.gex_history_dir}[/red]")
+            return
 
-    gex_map: dict[float, float] = load_gex_map_from_file(args.gex_file)
-    if not gex_map:
-        _CONSOLE.print(f"[red]GEX snapshot is empty: {args.gex_file}[/red]")
-        return
-
-    gex_manager = GexRiskManager(gex_map=gex_map)
     confluence = SuperConfluenceFilter()
 
     _CONSOLE.print("[dim]Loading tick data ...[/dim]")
-    df: pd.DataFrame = load_merged_frame(args.data_dir)
+    try:
+        df: pd.DataFrame = load_merged_frame(args.data_dir, symbol=args.symbol)
+    except ValueError as exc:
+        _CONSOLE.print(f"[red]{exc}[/red]")
+        return
 
     detector = MicrostructureDetector(
         divergence_window=args.div_window,
@@ -607,10 +724,13 @@ def main() -> None:
         return
 
     signal_map: dict[int, str] = dict(zip(signals["timestamp_ms"].to_numpy(), signals["signal"].to_numpy()))
+    gex_source: str = (
+        f"static file {args.gex_file}"
+        if gex_history is None
+        else f"{len(gex_history)} snapshots in {args.gex_history_dir}"
+    )
     _CONSOLE.print(
-        f"[dim]Running event loop over {len(df):,} ticks with "
-        f"{len(signal_map)} signals "
-        f"(GEX strikes={len(gex_map)}, file={args.gex_file}) ...[/dim]\n"
+        f"[dim]Running event loop over {len(df):,} ticks with {len(signal_map)} signals (GEX: {gex_source}) ...[/dim]\n"
     )
 
     engine = BacktestEngine(
@@ -618,6 +738,8 @@ def main() -> None:
         signal_map=signal_map,
         gex_manager=gex_manager,
         confluence=confluence,
+        position_sizer=PositionSizer() if args.position_usdt is None else None,
+        gex_history=gex_history,
     )
     for row in df.itertuples(index=False):
         engine.process_tick(row)

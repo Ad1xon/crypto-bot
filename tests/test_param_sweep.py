@@ -130,3 +130,15 @@ def test_render_sweep_table_no_throw():
     output = console.export_text()
     assert "ROBUST" in output
     assert "2.0" in output
+
+
+def test_evaluate_robustness_custom_min_trades():
+    # 15 trades with default min_trades=2 -> ROBUST
+    rep = _make_dummy_report(15, 2.0, 300.0, 1.5)
+    score, status = evaluate_robustness(rep, rep, min_trades=2)
+    assert status == "ROBUST"
+
+    # 15 trades with min_trades=30 -> INSUFFICIENT_TRADES
+    score, status = evaluate_robustness(rep, rep, min_trades=30)
+    assert status == "INSUFFICIENT_TRADES"
+    assert score == 0.0

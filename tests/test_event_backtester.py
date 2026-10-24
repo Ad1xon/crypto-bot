@@ -152,3 +152,101 @@ def test_compute_performance_report_quant_metrics():
     assert report.sortino_ratio > 0.0
     assert report.calmar_ratio > 0.0
     assert report.win_loss_ratio > 1.0  # Avg win (28) / Avg loss (12) > 2
+
+
+def test_sample_size_label():
+    from research.event_backtester import sample_size_label
+
+    assert sample_size_label(0) == "INSUFFICIENT"
+    assert sample_size_label(29) == "INSUFFICIENT"
+    assert sample_size_label(30) == "LOW"
+    assert sample_size_label(99) == "LOW"
+    assert sample_size_label(100) == "OK"
+    assert sample_size_label(250) == "OK"
+
+
+def test_backtest_engine_slippage_and_fees():
+    # 2 bps slippage, 0.00045 fee rate
+    config = TradeConfig(
+        initial_balance=10000.0,
+        position_size_usdt=1000.0,
+        take_profit_usdt=200.0,
+        stop_loss_usdt=100.0,
+        fee_rate=0.00045,
+        slippage_bps=2.0,
+        cooldown_ms=0,
+    )
+    signal_map = {1000: "BULLISH_ABSORPTION"}
+    engine = BacktestEngine(config, signal_map, gex_manager=None, confluence=DummyConfluence())
+
+    # Entry at 50,000 -> with 2 bps slippage, entry price = 50,000 * 1.0002 = 50,010.0
+    engine.process_tick(DummyTick(1000, 50000.0, 50000.0))
+    assert engine.has_open_position
+    assert engine._entry_price == 50010.0
+
+    # Trigger SL: SL price = 50,010 - 100 = 49,910.
+    # At tick 2000, price breaches SL at 49,900.
+    # SL is a market exit -> pays 2 bps slippage: 49,910 * (1 - 0.0002) = 49,900.018
+    engine.process_tick(DummyTick(2000, 49900.0, 50000.0))
+    assert not engine.has_open_position
+    records = engine.trade_records
+    assert len(records) == 1
+    trade = records[0]
+    assert trade.outcome == "SL"
+    assert trade.net_pnl < 0
+    # Consistency check: balance_after must equal initial_balance + sum(net_pnl)
+    assert abs(engine.equity_curve[-1] - (config.initial_balance + trade.net_pnl)) < 1e-4
+
+
+def test_backtest_engine_with_position_sizer():
+    from quant_models.position_sizer import PositionSizer
+
+    config = TradeConfig(
+        initial_balance=10000.0,
+        take_profit_usdt=200.0,
+        stop_loss_usdt=100.0,
+        fee_rate=0.0,
+        slippage_bps=0.0,
+        cooldown_ms=0,
+        max_order_size_btc=0.05,  # clamp
+    )
+    sizer = PositionSizer()
+    signal_map = {1000: "BULLISH_ABSORPTION"}
+    engine = BacktestEngine(
+        config,
+        signal_map,
+        gex_manager=None,
+        confluence=DummyConfluence(),
+        position_sizer=sizer,
+    )
+
+    engine.process_tick(DummyTick(1000, 50000.0, 50000.0))
+    # Uncapped size would be 500 / 100 = 5.0 BTC, but capped at 0.05 BTC
+    assert engine._position_btc == 0.05
+
+
+def test_backtest_engine_with_gex_history():
+    from quant_models.gex_risk_manager import GexHistory
+
+    config = TradeConfig(
+        initial_balance=10000.0,
+        position_size_usdt=1000.0,
+        take_profit_usdt=200.0,
+        stop_loss_usdt=100.0,
+        fee_rate=0.0,
+        cooldown_ms=0,
+    )
+    # GEX snapshot valid at ts 1000 with positive GEX at 50,000
+    history = GexHistory([(1000, {50000.0: 1.0})])
+    signal_map = {1000: "BULLISH_ABSORPTION"}
+
+    engine = BacktestEngine(
+        config,
+        signal_map,
+        gex_manager=None,
+        confluence=SuperConfluenceFilter(),
+        gex_history=history,
+    )
+
+    engine.process_tick(DummyTick(1000, 50000.0, 50000.0))
+    assert engine.has_open_position

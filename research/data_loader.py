@@ -33,8 +33,27 @@ def load_parquet_glob(data_dir: pathlib.Path, prefix: str) -> pd.DataFrame:
     )
 
 
-def load_merged_frame(data_dir: pathlib.Path = _DEFAULT_DATA_DIR, include_vwap: bool = True) -> pd.DataFrame:
+def list_symbols(data_dir: pathlib.Path) -> list[str]:
+    """Return the distinct symbols present in ``{bbo|trades}_{symbol}_{timestamp}.parquet`` names."""
+    symbols: set[str] = set()
+    for record_type in ("bbo", "trades"):
+        for path in data_dir.glob(f"{record_type}_*.parquet"):
+            parts: list[str] = path.stem.split("_")
+            if len(parts) >= 3:
+                symbols.add("_".join(parts[1:-1]))
+    return sorted(symbols)
+
+
+def load_merged_frame(
+    data_dir: pathlib.Path = _DEFAULT_DATA_DIR,
+    include_vwap: bool = True,
+    symbol: str | None = None,
+) -> pd.DataFrame:
     """Build a merged BBO + Trade DataFrame aligned by timestamp at 100 ms cadence.
+
+    *symbol* (e.g. ``"btc"``) restricts loading to ``bbo_{symbol}_*`` / ``trades_{symbol}_*``.
+    Without it, a directory holding several symbols is rejected because mixing venues or
+    instruments in one price series produces meaningless signals.
 
     Pipeline:
     1. Load all trade Parquet files; compute running signed CVD as
@@ -49,7 +68,15 @@ def load_merged_frame(data_dir: pathlib.Path = _DEFAULT_DATA_DIR, include_vwap: 
         ``best_ask_price``, ``best_bid_qty``, ``best_ask_qty``, ``spread``,
         ``ofi``, ``price``, ``cvd`` (and ``vwap`` if *include_vwap* is True).
     """
-    trades: pd.DataFrame = load_parquet_glob(data_dir, "trades")
+    if symbol is None:
+        found: list[str] = list_symbols(data_dir)
+        if len(found) > 1:
+            raise ValueError(f"Multiple symbols in '{data_dir}': {found}. Pass symbol=... to select one.")
+        trades_prefix, bbo_prefix = "trades", "bbo"
+    else:
+        trades_prefix, bbo_prefix = f"trades_{symbol.lower()}", f"bbo_{symbol.lower()}"
+
+    trades: pd.DataFrame = load_parquet_glob(data_dir, trades_prefix)
     trades["signed_qty"] = trades["qty"].where(~trades["is_buyer_maker"], -trades["qty"])
     trades["cvd"] = trades["signed_qty"].cumsum()
     trades["dt"] = pd.to_datetime(trades["timestamp_ms"], unit="ms", utc=True)
@@ -73,7 +100,7 @@ def load_merged_frame(data_dir: pathlib.Path = _DEFAULT_DATA_DIR, include_vwap: 
         trades["vwap"] = cum_pv / cum_v
         merge_cols.append("vwap")
 
-    bbo: pd.DataFrame = load_parquet_glob(data_dir, "bbo")
+    bbo: pd.DataFrame = load_parquet_glob(data_dir, bbo_prefix)
     bbo = bbo[bbo["best_ask_price"] > 0].reset_index(drop=True)
     bbo["dt"] = pd.to_datetime(bbo["timestamp_ms"], unit="ms", utc=True)
 

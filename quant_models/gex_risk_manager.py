@@ -8,17 +8,67 @@ backtest share one predicate.
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import os
 import pathlib
 import time
+from datetime import datetime
 from typing import Final
 
 from quant_models.super_confluence import SuperConfluenceFilter
 
 _LOG: Final[logging.Logger] = logging.getLogger(__name__)
 _GEX_MAX_AGE_S: Final[int] = 30
+_HISTORY_MAX_AGE_S: Final[float] = 300.0
+
+
+class GexHistory:
+    """Point-in-time GEX lookup over the snapshots stored by ``deribit_client``.
+
+    ``map_at`` returns the latest snapshot at or before the requested timestamp, so a
+    backtest never sees GEX data from the future. Gaps longer than ``max_age_s`` yield an
+    empty map, mirroring the live staleness guard.
+    """
+
+    def __init__(
+        self,
+        snapshots: list[tuple[int, dict[float, float]]],
+        max_age_s: float = _HISTORY_MAX_AGE_S,
+    ) -> None:
+        ordered = sorted(snapshots, key=lambda item: item[0])
+        self._timestamps_ms: list[int] = [ts for ts, _ in ordered]
+        self._maps: list[dict[float, float]] = [gex for _, gex in ordered]
+        self._max_age_ms: float = max_age_s * 1000.0
+
+    def __len__(self) -> int:
+        return len(self._timestamps_ms)
+
+    @classmethod
+    def from_dir(cls, history_dir: pathlib.Path, max_age_s: float = _HISTORY_MAX_AGE_S) -> GexHistory:
+        """Load every ``*.jsonl`` file in *history_dir*; malformed lines are skipped."""
+        snapshots: list[tuple[int, dict[float, float]]] = []
+        for path in sorted(history_dir.glob("*.jsonl")):
+            with open(path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        payload: dict = json.loads(line)
+                        ts_ms: int = int(datetime.fromisoformat(payload["timestamp"]).timestamp() * 1000)
+                        gex: dict[float, float] = {float(k): float(v) for k, v in payload["gex"].items()}
+                    except (json.JSONDecodeError, KeyError, ValueError, TypeError, AttributeError):
+                        continue
+                    snapshots.append((ts_ms, gex))
+        return cls(snapshots, max_age_s)
+
+    def map_at(self, timestamp_ms: float) -> dict[float, float]:
+        """Return the GEX map valid at *timestamp_ms*, or ``{}`` if none or too old."""
+        idx: int = bisect.bisect_right(self._timestamps_ms, timestamp_ms) - 1
+        if idx < 0:
+            return {}
+        if timestamp_ms - self._timestamps_ms[idx] > self._max_age_ms:
+            return {}
+        return self._maps[idx]
 
 
 class GexRiskManager:

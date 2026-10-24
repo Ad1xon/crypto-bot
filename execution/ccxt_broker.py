@@ -11,14 +11,12 @@ import ccxt.async_support as ccxt
 
 from execution.discord_alerter import DiscordAlerter
 from execution.interfaces import ExecutionEngine
-from quant_models.position_sizer import PositionSizer
+from quant_models.position_sizer import PositionSizer, gex_size_multiplier
 
 _LOG: Final[logging.Logger] = logging.getLogger(__name__)
 
 _BULLISH: Final[str] = "BULLISH_ABSORPTION"
 _BEARISH: Final[str] = "BEARISH_ABSORPTION"
-_GEX_HIGH_THRESHOLD: Final[float] = 0.05
-_GEX_LOW_THRESHOLD: Final[float] = 0.01
 _MAX_CANCEL_RETRIES: Final[int] = 3
 _DEFAULT_STATE_FILE: Final[pathlib.Path] = pathlib.Path("data/live_state.json")
 
@@ -340,13 +338,6 @@ class CCXTBroker(ExecutionEngine):
             _LOG.error("[CCXT BROKER] Failed to fetch balance — %s", exc)
             return 0.0
 
-    def _gex_multiplier(self, abs_gex: float) -> float:
-        if abs_gex >= _GEX_HIGH_THRESHOLD:
-            return 1.2
-        if abs_gex >= _GEX_LOW_THRESHOLD:
-            return 1.0
-        return 0.8
-
     async def update_tick(self, current_price: float, current_time: float) -> None:
         """Ratchet the trailing SL and trigger a market exit if any level is breached.
 
@@ -600,7 +591,7 @@ class CCXTBroker(ExecutionEngine):
         self._active_tp_dist = effective_tp_dist
         self._active_activation_dist = effective_activation
 
-        multiplier: float = self._gex_multiplier(abs(gex_value))
+        multiplier: float = gex_size_multiplier(gex_value)
         if self._position_sizer is not None:
             base_size_btc: float = self._position_sizer.calculate_position_btc(
                 account_balance_usdt=current_balance,

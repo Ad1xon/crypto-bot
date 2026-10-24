@@ -121,7 +121,7 @@ def test_paper_trader_with_position_sizer(tmp_path: pathlib.Path) -> None:
     trader = _make_trader(tmp_path, position_sizer=sizer, sl_usdt=250.0)
 
     # Balance 10000, risk capital is 500 USDT (5% cap)
-    # SL distance is 250 USDT -> size = 500 / 250 = 2.0 BTC
-    trader._open_position("BULLISH_ABSORPTION", 50000.0)
+    # SL distance is 250 USDT, normal GEX (0.02 -> 1.0x) -> size = 500 / 250 = 2.0 BTC
+    trader._open_position("BULLISH_ABSORPTION", 50000.0, gex_value=0.02)
     assert abs(trader._position_btc - 2.0) < 1e-4
     assert trader.has_open_position

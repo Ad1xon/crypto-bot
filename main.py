@@ -59,6 +59,7 @@ def _configure_logging(
 async def _build_execution_engine() -> ExecutionEngine:
     """Construct and initialise the execution engine selected by ``LIVE_MODE``."""
     position_sizer = PositionSizer()
+    strategy = SETTINGS.strategy
     if SETTINGS.live_mode:
         broker_cfg = SETTINGS.build_broker()
         engine = CCXTBroker(
@@ -72,6 +73,9 @@ async def _build_execution_engine() -> ExecutionEngine:
             default_leverage=SETTINGS.default_leverage,
             slippage_tolerance_pct=SETTINGS.slippage_tolerance_pct,
             position_sizer=position_sizer,
+            sl_pct=strategy.sl_pct,
+            tp_pct=strategy.tp_pct,
+            fee_rate=strategy.taker_fee_rate,
         )
         await engine.initialize()
         _LOG.critical(
@@ -81,7 +85,15 @@ async def _build_execution_engine() -> ExecutionEngine:
         return engine
 
     _LOG.info("Paper-trading mode active — no real orders will be submitted.")
-    return PaperTrader(position_sizer=position_sizer)
+    return PaperTrader(
+        position_sizer=position_sizer,
+        sl_pct=strategy.sl_pct,
+        tp_pct=strategy.tp_pct,
+        fee_rate=strategy.taker_fee_rate,
+        slippage_bps=strategy.slippage_bps,
+        max_order_size_btc=SETTINGS.max_order_size_btc,
+        max_leverage=float(SETTINGS.default_leverage),
+    )
 
 
 def _register_sigterm(loop: asyncio.AbstractEventLoop, main_task: asyncio.Task) -> None:

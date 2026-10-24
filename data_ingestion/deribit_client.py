@@ -21,9 +21,12 @@ from __future__ import annotations
 import json
 import math
 import pathlib
+import sys
 import time
 from datetime import UTC, datetime
 from typing import Final
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 import requests
 
@@ -31,6 +34,8 @@ from config.settings import SETTINGS
 
 DATA_DIR: Final[pathlib.Path] = pathlib.Path("data")
 OUTPUT_FILE: Final[pathlib.Path] = DATA_DIR / "live_gex.json"
+HISTORY_DIR: Final[pathlib.Path] = DATA_DIR / "gex_history"
+HISTORY_INTERVAL_S: Final[float] = 60.0
 POLL_INTERVAL_S: Final[int] = 10
 RISK_FREE_RATE: Final[float] = 0.05
 CONTRACT_SIZE_BTC: Final[float] = 1.0
@@ -198,10 +203,31 @@ def write_atomic(data: dict, output_path: pathlib.Path) -> None:
     tmp_path.replace(output_path)
 
 
+def append_history(payload: dict, history_dir: pathlib.Path) -> pathlib.Path:
+    """Append one compact JSON line to the daily ``gex_YYYYMMDD.jsonl`` file.
+
+    Unlike ``live_gex.json`` this is never overwritten, so a backtest can look up the
+    snapshot that was valid at any past signal time.
+    """
+    history_dir.mkdir(parents=True, exist_ok=True)
+    day: str = str(payload["timestamp"])[:10].replace("-", "")
+    path: pathlib.Path = history_dir / f"gex_{day}.jsonl"
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, separators=(",", ":")) + "\n")
+    return path
+
+
+def should_append_history(last_written_s: float | None, now_s: float, interval_s: float = HISTORY_INTERVAL_S) -> bool:
+    """Return True when no snapshot was stored yet or ``interval_s`` has elapsed."""
+    return last_written_s is None or now_s - last_written_s >= interval_s
+
+
 def main() -> None:
     """Entry point: poll Deribit in a loop and persist GEX snapshots."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Deribit GEX client started — writing to {OUTPUT_FILE}")
+
+    last_history_s: float | None = None
 
     while True:
         try:
@@ -213,6 +239,10 @@ def main() -> None:
                 "gex": gex,
             }
             write_atomic(payload, OUTPUT_FILE)
+            now_s: float = time.monotonic()
+            if should_append_history(last_history_s, now_s):
+                append_history(payload, HISTORY_DIR)
+                last_history_s = now_s
             ts = datetime.now(UTC).strftime("%H:%M:%S")
             print(f"[{ts}] GEX snapshot written — {len(gex)} strikes, spot ≈ {spot:,.0f}")
 
@@ -227,7 +257,7 @@ def main() -> None:
             time.sleep(NETWORK_BACKOFF_S)
             continue
 
-        except (KeyError, ValueError, json.JSONDecodeError) as exc:
+        except (KeyError, ValueError) as exc:
             print(f"Data parsing error: {exc}")
 
         time.sleep(POLL_INTERVAL_S)
