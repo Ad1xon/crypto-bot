@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
@@ -115,19 +116,24 @@ class TickLogger:
     ) -> None:
         """Continuously drain a queue and persist batches to Parquet.
 
-        Blocks on each queue.get() with a timeout equal to flush_interval_s.
-        A TimeoutError triggers an immediate flush of whatever has accumulated.
+        Flushes when either condition is met:
+        1. ``len(batch) >= batch_size``
+        2. ``flush_interval_s`` seconds have elapsed since the last flush and ``batch`` is non-empty.
         A sentinel value (None) triggers a final flush then clean worker exit.
         """
         batch: list[dict[str, Any]] = []
+        last_flush: float = time.monotonic()
 
         while True:
+            time_since_flush: float = time.monotonic() - last_flush
+            remaining_timeout: float = max(0.1, self._flush_interval_s - time_since_flush)
             try:
-                record = await asyncio.wait_for(queue.get(), timeout=self._flush_interval_s)
+                record = await asyncio.wait_for(queue.get(), timeout=remaining_timeout)
             except TimeoutError:
                 if batch:
                     await self._write_parquet(batch, record_type)
                     batch.clear()
+                    last_flush = time.monotonic()
                 continue
 
             queue.task_done()
@@ -139,9 +145,11 @@ class TickLogger:
 
             batch.append(record)
 
-            if len(batch) >= self._batch_size:
+            now: float = time.monotonic()
+            if len(batch) >= self._batch_size or (now - last_flush >= self._flush_interval_s):
                 await self._write_parquet(batch, record_type)
                 batch.clear()
+                last_flush = now
 
     async def _write_parquet(
         self,

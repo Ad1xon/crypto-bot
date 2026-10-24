@@ -193,9 +193,11 @@ class HyperliquidStreamer(DataStreamer):
 
             sz = float(trade.get("sz", 0))
             px = float(trade.get("px", 0))
-            side = trade.get("dir", "Buy")
+            raw_side = trade.get("side") or trade.get("dir") or "B"
+            is_buy: bool = raw_side in ("B", "Buy", "BUY")
+            side: str = "Buy" if is_buy else "Sell"
 
-            delta = sz if side == "Buy" else -sz
+            delta = sz if is_buy else -sz
             self._cvd += delta
             self._live_engine.update_trade(px, sz)
 
@@ -205,6 +207,6 @@ class HyperliquidStreamer(DataStreamer):
                     "price": px,
                     "qty": sz,
                     "side": side,
-                    "is_buyer_maker": side == "Sell",
+                    "is_buyer_maker": not is_buy,
                 }
             )
