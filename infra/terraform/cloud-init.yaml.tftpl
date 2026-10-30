@@ -1,0 +1,82 @@
+#cloud-config
+# First-boot provisioning: hardened SSH, Docker, persistent data volume, repo checkout.
+# Secrets (.env, Discord webhook) are NOT provisioned here - Terraform state would leak them.
+# Copy them once with scp, or let the GitHub Actions deploy job write them.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - fail2ban
+  - unattended-upgrades
+
+users:
+  - name: deploy
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+ssh_pwauth: false
+disable_root: true
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    permissions: "0644"
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      MaxAuthTries 3
+      AllowUsers deploy
+
+  - path: /etc/docker/daemon.json
+    permissions: "0644"
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "20m", "max-file": "5" },
+        "live-restore": true
+      }
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+runcmd:
+  # 2 GB swap: torch import spikes memory on 4 GB instances.
+  - fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  - echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+  # Persistent volume (attached after server creation -> wait for the device).
+  - for i in $(seq 1 60); do [ -e ${volume_device} ] && break; sleep 2; done
+  - mkdir -p /mnt/data
+  - echo '${volume_device} /mnt/data ext4 discard,nofail,defaults 0 0' >> /etc/fstab
+  - mount -a
+  - mkdir -p /mnt/data/ticks /mnt/data/logs
+  - chown -R 10001:10001 /mnt/data/ticks /mnt/data/logs
+
+  # Docker Engine + compose plugin from Docker's official repository.
+  - curl -fsSL https://get.docker.com | sh
+  - usermod -aG docker deploy
+  - systemctl enable --now docker
+
+  # Application checkout. data/ and logs/ live on the volume.
+  - git clone --branch ${repo_ref} ${repo_url} /opt/crypto-quant
+  - mkdir -p /opt/crypto-quant/secrets
+  - touch /opt/crypto-quant/secrets/discord_webhook_url
+  - chmod 0644 /opt/crypto-quant/secrets/discord_webhook_url
+  - printf 'DATA_DIR=/mnt/data/ticks\nLOGS_DIR=/mnt/data/logs\n' > /opt/crypto-quant/.compose.env
+  - chown -R deploy:deploy /opt/crypto-quant
+
+  - systemctl restart ssh
+  - systemctl enable --now fail2ban
+
+final_message: "crypto-quant host ready after $UPTIME s - copy .env and run: docker compose --profile monitoring up -d"
