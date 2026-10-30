@@ -10,10 +10,6 @@ name: crypto-quant
 
 x-app: &app
   image: ${IMAGE:-ghcr.io/ad1xon/crypto-bot}:${IMAGE_TAG:-latest}
-  build:
-    context: .
-    args:
-      VERSION: ${IMAGE_TAG:-dev}
   env_file: .env
   init: true
   restart: unless-stopped
@@ -38,9 +34,33 @@ x-app-env: &app-env
   MPLCONFIGDIR: /tmp/matplotlib
 
 services:
+  bot:
+    <<: *app
+    build:
+      context: .
+      args:
+        VERSION: ${IMAGE_TAG:-dev}
+    command: ["crypto-quant"]
+    environment:
+      <<: *app-env
+      METRICS_PORT: "9100"
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data
+      - ${LOGS_DIR:-./logs}:/app/logs
+      - hf-cache:/app/.cache
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "1.5"
+
   gex-collector:
     <<: *app
     command: ["crypto-quant-gex"]
+    depends_on:
+      bot:
+        condition: service_started
     environment:
       <<: *app-env
       METRICS_PORT: "9101"
@@ -58,26 +78,6 @@ services:
         limits:
           memory: 384m
           cpus: "0.5"
-
-  bot:
-    <<: *app
-    command: ["crypto-quant"]
-    environment:
-      <<: *app-env
-      METRICS_PORT: "9100"
-    volumes:
-      - ${DATA_DIR:-./data}:/app/data
-      - ${LOGS_DIR:-./logs}:/app/logs
-      - hf-cache:/app/.cache
-    depends_on:
-      gex-collector:
-        condition: service_started
-    stop_grace_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 2g
-          cpus: "1.5"
 
   # ---------------------------------------------------------------- monitoring
   prometheus:
