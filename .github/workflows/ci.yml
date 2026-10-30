@@ -116,7 +116,7 @@ jobs:
           dockerfile: Dockerfile
           failure-threshold: error
       - name: Trivy config scan (Dockerfile, compose, Terraform)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: config
           scan-ref: .
@@ -174,7 +174,7 @@ jobs:
           docker run --rm --entrypoint python crypto-quant:scan -c "import crypto_quant.main, crypto_quant.observability.metrics"
           docker run --rm --entrypoint id crypto-quant:scan | grep -q "uid=10001"
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: crypto-quant:scan
           format: sarif
