@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from execution.ccxt_broker import CCXTBroker
+from crypto_quant.execution.ccxt_broker import CCXTBroker
 
 _BULLISH: str = "BULLISH_ABSORPTION"
 _BEARISH: str = "BEARISH_ABSORPTION"
@@ -25,7 +25,7 @@ def clean_broker(tmp_path: pathlib.Path, mock_exchange: MagicMock) -> CCXTBroker
     """CCXTBroker with a blank state — no position, no fault, no cooldown."""
     state_file = tmp_path / "live_state.json"
 
-    with patch("execution.ccxt_broker.ccxt") as mock_ccxt:
+    with patch("crypto_quant.execution.ccxt_broker.ccxt") as mock_ccxt:
         mock_ccxt.bybit.return_value = mock_exchange
         broker = CCXTBroker(
             exchange_id="bybit",
@@ -198,7 +198,7 @@ class TestKillSwitch:
 
     async def test_execute_signal_uses_position_sizer(self, clean_broker: CCXTBroker, mock_exchange: MagicMock) -> None:
         """When position_sizer is configured, Kelly sizing overrides fixed risk fraction."""
-        from quant_models.position_sizer import PositionSizer
+        from crypto_quant.quant_models.position_sizer import PositionSizer
 
         sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)
         clean_broker._position_sizer = sizer
@@ -220,7 +220,7 @@ class TestKillSwitch:
         self, clean_broker: CCXTBroker, mock_exchange: MagicMock
     ) -> None:
         """Adverse sentiment scales down position size via Kelly sizer."""
-        from quant_models.position_sizer import PositionSizer
+        from crypto_quant.quant_models.position_sizer import PositionSizer
 
         sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)
         clean_broker._position_sizer = sizer
@@ -244,7 +244,7 @@ class TestKillSwitch:
         self, clean_broker: CCXTBroker, mock_exchange: MagicMock
     ) -> None:
         """Calculated position sizes exceeding max_order_size_btc must be clamped."""
-        from quant_models.position_sizer import PositionSizer
+        from crypto_quant.quant_models.position_sizer import PositionSizer
 
         clean_broker._max_order_size_btc = 0.05
         sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)

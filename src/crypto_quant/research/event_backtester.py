@@ -25,12 +25,8 @@ from __future__ import annotations
 import argparse
 import math
 import pathlib
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Final, Protocol
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 from rich import box
@@ -38,12 +34,12 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from config.settings import SETTINGS
-from quant_models.gex_risk_manager import GexHistory, GexRiskManager, load_gex_map_from_file
-from quant_models.position_sizer import PositionSizer, cap_position_btc, gex_size_multiplier
-from quant_models.smc_detectors import MicrostructureDetector
-from quant_models.super_confluence import SuperConfluenceFilter
-from research.data_loader import load_merged_frame
+from crypto_quant.config.settings import SETTINGS
+from crypto_quant.quant_models.gex_risk_manager import GexHistory, GexRiskManager, load_gex_map_from_file
+from crypto_quant.quant_models.position_sizer import PositionSizer, cap_position_btc, gex_size_multiplier
+from crypto_quant.quant_models.smc_detectors import MicrostructureDetector
+from crypto_quant.quant_models.super_confluence import SuperConfluenceFilter
+from crypto_quant.research.data_loader import load_merged_frame
 
 _CONSOLE: Final[Console] = Console()
 _DATA_DIR: Final[pathlib.Path] = pathlib.Path("data")

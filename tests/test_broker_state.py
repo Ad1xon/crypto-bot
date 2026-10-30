@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from execution.ccxt_broker import CCXTBroker
+from crypto_quant.execution.ccxt_broker import CCXTBroker
 
 _FAULT_STATE: dict[str, object] = {
     "position": "LONG",
@@ -33,7 +33,7 @@ def fault_broker(tmp_path: pathlib.Path, mock_exchange: MagicMock) -> CCXTBroker
     state_file = tmp_path / "live_state.json"
     state_file.write_text(json.dumps(_FAULT_STATE), encoding="utf-8")
 
-    with patch("execution.ccxt_broker.ccxt") as mock_ccxt:
+    with patch("crypto_quant.execution.ccxt_broker.ccxt") as mock_ccxt:
         mock_ccxt.bybit.return_value = mock_exchange
         broker = CCXTBroker(
             exchange_id="bybit",

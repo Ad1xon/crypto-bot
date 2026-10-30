@@ -6,7 +6,7 @@ from typing import Final
 
 import aiohttp
 
-from config.settings import SETTINGS
+from crypto_quant.config.settings import SETTINGS
 
 _LOG: Final[logging.Logger] = logging.getLogger(__name__)
 

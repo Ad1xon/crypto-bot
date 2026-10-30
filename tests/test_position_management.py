@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pathlib
 
-from execution.live_engine import PaperTrader
+from crypto_quant.execution.live_engine import PaperTrader
 
 _ENTRY: float = 50_000.0
 _ACTIVATION_PRICE: float = 50_500.0
@@ -115,7 +115,7 @@ class TestBreakEvenFloor:
 
 
 def test_paper_trader_with_position_sizer(tmp_path: pathlib.Path) -> None:
-    from quant_models.position_sizer import PositionSizer
+    from crypto_quant.quant_models.position_sizer import PositionSizer
 
     sizer = PositionSizer(base_win_rate=0.55, win_loss_ratio=2.0, half_kelly=True)
     trader = _make_trader(tmp_path, position_sizer=sizer, sl_usdt=250.0)

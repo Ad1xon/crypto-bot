@@ -17,14 +17,14 @@ from typing import Any, Final
 
 import pandas as pd
 
-from execution.interfaces import ExecutionEngine
-from execution.signal_logger import SignalAuditLogger
-from quant_models.gex_risk_manager import GexRiskManager
-from quant_models.macro_filter import MacroCalendarFilter
-from quant_models.position_sizer import PositionSizer, cap_position_btc, gex_size_multiplier
-from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
-from quant_models.smc_detectors import MicrostructureDetector
-from quant_models.super_confluence import (
+from crypto_quant.execution.interfaces import ExecutionEngine
+from crypto_quant.execution.signal_logger import SignalAuditLogger
+from crypto_quant.quant_models.gex_risk_manager import GexRiskManager
+from crypto_quant.quant_models.macro_filter import MacroCalendarFilter
+from crypto_quant.quant_models.position_sizer import PositionSizer, cap_position_btc, gex_size_multiplier
+from crypto_quant.quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
+from crypto_quant.quant_models.smc_detectors import MicrostructureDetector
+from crypto_quant.quant_models.super_confluence import (
     ConfluenceVerdict,
     SessionVwap,
     SuperConfluenceFilter,

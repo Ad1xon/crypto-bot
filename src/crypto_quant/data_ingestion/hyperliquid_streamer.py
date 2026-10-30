@@ -12,16 +12,16 @@ import websockets
 from websockets.asyncio.client import ClientConnection
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
-from config.settings import SETTINGS, AppConfig
-from data_ingestion.interfaces import DataStreamer
-from data_ingestion.tick_logger import TickLogger
-from execution.interfaces import ExecutionEngine
-from execution.live_engine import LiveSignalEngine
-from quant_models.gex_risk_manager import GexRiskManager
-from quant_models.macro_filter import MacroCalendarFilter
-from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
-from quant_models.smc_detectors import MicrostructureDetector
-from visualizer.cli_dashboard import CLIDashboard
+from crypto_quant.config.settings import SETTINGS, AppConfig
+from crypto_quant.data_ingestion.interfaces import DataStreamer
+from crypto_quant.data_ingestion.tick_logger import TickLogger
+from crypto_quant.execution.interfaces import ExecutionEngine
+from crypto_quant.execution.live_engine import LiveSignalEngine
+from crypto_quant.quant_models.gex_risk_manager import GexRiskManager
+from crypto_quant.quant_models.macro_filter import MacroCalendarFilter
+from crypto_quant.quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
+from crypto_quant.quant_models.smc_detectors import MicrostructureDetector
+from crypto_quant.visualizer.cli_dashboard import CLIDashboard
 
 logger: logging.Logger = logging.getLogger(__name__)
 

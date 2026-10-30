@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from quant_models.macro_filter import MacroCalendarFilter
+from crypto_quant.quant_models.macro_filter import MacroCalendarFilter
 
 
 @pytest.mark.asyncio
@@ -51,8 +51,8 @@ async def test_macro_filter_last_fetch():
 async def test_live_signal_engine_macro_gate():
     from unittest.mock import AsyncMock, MagicMock
 
-    from execution.live_engine import LiveSignalEngine
-    from quant_models.super_confluence import ConfluenceVerdict
+    from crypto_quant.execution.live_engine import LiveSignalEngine
+    from crypto_quant.quant_models.super_confluence import ConfluenceVerdict
 
     now = datetime.now(UTC)
     macro_filter = MacroCalendarFilter()

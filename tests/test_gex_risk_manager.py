@@ -1,7 +1,7 @@
 import json
 import pathlib
 
-from quant_models.gex_risk_manager import (
+from crypto_quant.quant_models.gex_risk_manager import (
     GexHistory,
     GexRiskManager,
     load_gex_map_from_file,

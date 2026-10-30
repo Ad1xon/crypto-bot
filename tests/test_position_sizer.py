@@ -1,4 +1,4 @@
-from quant_models.position_sizer import PositionSizer
+from crypto_quant.quant_models.position_sizer import PositionSizer
 
 
 def test_kelly_fraction():
@@ -84,7 +84,7 @@ def test_position_sizing_with_sentiment():
 
 
 def test_gex_size_multiplier():
-    from quant_models.position_sizer import gex_size_multiplier
+    from crypto_quant.quant_models.position_sizer import gex_size_multiplier
 
     assert gex_size_multiplier(0.0) == 0.8
     assert gex_size_multiplier(0.005) == 0.8
@@ -97,7 +97,7 @@ def test_gex_size_multiplier():
 
 
 def test_cap_position_btc():
-    from quant_models.position_sizer import cap_position_btc
+    from crypto_quant.quant_models.position_sizer import cap_position_btc
 
     # Base uncapped
     assert cap_position_btc(1.5, price=50000.0, balance_usdt=10000.0) == 1.5

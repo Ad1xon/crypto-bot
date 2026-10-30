@@ -3,7 +3,7 @@ import pathlib
 import pandas as pd
 import pytest
 
-from research.data_loader import load_merged_frame, load_parquet_glob
+from crypto_quant.research.data_loader import load_merged_frame, load_parquet_glob
 
 
 def test_load_parquet_glob_not_found(tmp_path: pathlib.Path):
@@ -50,7 +50,7 @@ def test_load_merged_frame(tmp_path: pathlib.Path):
 
 
 def test_calculate_atr():
-    from research.data_loader import calculate_atr
+    from crypto_quant.research.data_loader import calculate_atr
 
     df = pd.DataFrame(
         {
@@ -66,7 +66,7 @@ def test_calculate_atr():
 
 
 def test_symbol_filtering_and_multi_symbol_error(tmp_path: pathlib.Path):
-    from research.data_loader import list_symbols
+    from crypto_quant.research.data_loader import list_symbols
 
     # Setup dummy data for 'btc' and 'eth'
     df = pd.DataFrame(

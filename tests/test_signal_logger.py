@@ -1,7 +1,7 @@
 import json
 import pathlib
 
-from execution.signal_logger import SignalAuditLogger
+from crypto_quant.execution.signal_logger import SignalAuditLogger
 
 
 def test_signal_audit_logger(tmp_path: pathlib.Path):

@@ -20,26 +20,23 @@ from __future__ import annotations
 
 import json
 import pathlib
-import sys
 import time
 from datetime import UTC, datetime
 from typing import Final
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-
 import requests
 
-from config.settings import SETTINGS
-from quant_models.gex_calculator import (
+from crypto_quant.config.settings import SETTINGS
+from crypto_quant.quant_models.gex_calculator import (
     bs_gamma as _bs_gamma,
 )
-from quant_models.gex_calculator import (
+from crypto_quant.quant_models.gex_calculator import (
     compute_gex,
 )
-from quant_models.gex_calculator import (
+from crypto_quant.quant_models.gex_calculator import (
     norm_pdf as _norm_pdf,
 )
-from quant_models.gex_calculator import (
+from crypto_quant.quant_models.gex_calculator import (
     parse_deribit_instrument as _parse_instrument,
 )
 

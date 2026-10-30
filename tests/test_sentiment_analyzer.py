@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
+from crypto_quant.quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
 
 
 @pytest.mark.asyncio

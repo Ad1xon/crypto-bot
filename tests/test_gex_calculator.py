@@ -1,7 +1,7 @@
 import math
 from datetime import UTC, datetime
 
-from quant_models.gex_calculator import (
+from crypto_quant.quant_models.gex_calculator import (
     bs_gamma,
     compute_gex,
     norm_pdf,

@@ -26,25 +26,21 @@ import argparse
 import itertools
 import json
 import pathlib
-import sys
 from dataclasses import asdict, dataclass, replace
-from pathlib import Path
 from typing import Final
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from config.settings import SETTINGS
-from quant_models.gex_risk_manager import GexHistory, GexRiskManager
-from quant_models.position_sizer import PositionSizer
-from quant_models.smc_detectors import MicrostructureDetector
-from quant_models.super_confluence import SuperConfluenceFilter
-from research.data_loader import load_merged_frame
-from research.event_backtester import (
+from crypto_quant.config.settings import SETTINGS
+from crypto_quant.quant_models.gex_risk_manager import GexHistory, GexRiskManager
+from crypto_quant.quant_models.position_sizer import PositionSizer
+from crypto_quant.quant_models.smc_detectors import MicrostructureDetector
+from crypto_quant.quant_models.super_confluence import SuperConfluenceFilter
+from crypto_quant.research.data_loader import load_merged_frame
+from crypto_quant.research.event_backtester import (
     MIN_TRADES_FOR_SIGNIFICANCE,
     BacktestEngine,
     PerformanceReport,

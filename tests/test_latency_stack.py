@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
 import pytest
 
-from execution.ccxt_broker import CCXTBroker
-from quant_models.smc_detectors import MicrostructureDetector
+from crypto_quant.execution.ccxt_broker import CCXTBroker
+from crypto_quant.quant_models.smc_detectors import MicrostructureDetector
 
 
 @pytest.fixture
 def clean_broker(tmp_path: pathlib.Path, mock_exchange: MagicMock) -> CCXTBroker:
     state_file = tmp_path / "live_state.json"
-    with patch("execution.ccxt_broker.ccxt") as mock_ccxt:
+    with patch("crypto_quant.execution.ccxt_broker.ccxt") as mock_ccxt:
         mock_ccxt.bybit.return_value = mock_exchange
         broker = CCXTBroker(
             exchange_id="bybit",

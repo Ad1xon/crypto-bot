@@ -16,11 +16,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
-import sys
-from pathlib import Path
 from typing import Final
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 from rich import box
@@ -29,8 +25,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from quant_models.smc_detectors import MicrostructureDetector
-from research.data_loader import load_merged_frame
+from crypto_quant.quant_models.smc_detectors import MicrostructureDetector
+from crypto_quant.research.data_loader import load_merged_frame
 
 _CONSOLE: Final[Console] = Console()
 

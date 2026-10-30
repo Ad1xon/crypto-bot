@@ -1,5 +1,5 @@
-from config.settings import AppConfig
-from data_ingestion.hyperliquid_streamer import HyperliquidStreamer
+from crypto_quant.config.settings import AppConfig
+from crypto_quant.data_ingestion.hyperliquid_streamer import HyperliquidStreamer
 
 
 def test_handle_orderbook_parsing():

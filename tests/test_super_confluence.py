@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from quant_models.super_confluence import (
+from crypto_quant.quant_models.super_confluence import (
     SessionVwap,
     SuperConfluenceFilter,
 )

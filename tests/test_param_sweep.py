@@ -1,10 +1,10 @@
 import pandas as pd
 from rich.console import Console
 
-from quant_models.gex_risk_manager import GexRiskManager
-from quant_models.super_confluence import ConfluenceVerdict, SuperConfluenceFilter
-from research.event_backtester import PerformanceReport, TradeConfig
-from research.param_sweep import (
+from crypto_quant.quant_models.gex_risk_manager import GexRiskManager
+from crypto_quant.quant_models.super_confluence import ConfluenceVerdict, SuperConfluenceFilter
+from crypto_quant.research.event_backtester import PerformanceReport, TradeConfig
+from crypto_quant.research.param_sweep import (
     SweepParams,
     SweepResult,
     default_param_grid,

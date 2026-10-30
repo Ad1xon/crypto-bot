@@ -17,7 +17,7 @@ import time
 from datetime import datetime
 from typing import Final
 
-from quant_models.super_confluence import SuperConfluenceFilter
+from crypto_quant.quant_models.super_confluence import SuperConfluenceFilter
 
 _LOG: Final[logging.Logger] = logging.getLogger(__name__)
 _GEX_MAX_AGE_S: Final[int] = 30

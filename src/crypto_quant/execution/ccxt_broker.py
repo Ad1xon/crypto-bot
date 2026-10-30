@@ -9,9 +9,9 @@ from typing import Any, Final
 
 import ccxt.async_support as ccxt
 
-from execution.discord_alerter import DiscordAlerter
-from execution.interfaces import ExecutionEngine
-from quant_models.position_sizer import PositionSizer, gex_size_multiplier
+from crypto_quant.execution.discord_alerter import DiscordAlerter
+from crypto_quant.execution.interfaces import ExecutionEngine
+from crypto_quant.quant_models.position_sizer import PositionSizer, gex_size_multiplier
 
 _LOG: Final[logging.Logger] = logging.getLogger(__name__)
 

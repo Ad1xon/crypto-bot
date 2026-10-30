@@ -24,7 +24,7 @@ from typing import Any, Final
 
 import pandas as pd
 
-from config.settings import TickLoggerConfig
+from crypto_quant.config.settings import TickLoggerConfig
 
 logger: logging.Logger = logging.getLogger(__name__)
 

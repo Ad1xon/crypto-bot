@@ -3,8 +3,8 @@ from __future__ import annotations
 import abc
 from typing import Any
 
-from execution.interfaces import ExecutionEngine
-from visualizer.cli_dashboard import CLIDashboard
+from crypto_quant.execution.interfaces import ExecutionEngine
+from crypto_quant.visualizer.cli_dashboard import CLIDashboard
 
 
 class DataStreamer(abc.ABC):

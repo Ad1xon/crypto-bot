@@ -1,6 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crypto-quant"
+version = "0.5.0"
+description = "Asynchronous microstructure trading system for Hyperliquid perps with Deribit GEX gating."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+dynamic = ["dependencies", "optional-dependencies"]
+
+[project.scripts]
+crypto-quant = "crypto_quant.main:main"
+crypto-quant-gex = "crypto_quant.data_ingestion.deribit_client:main"
+crypto-quant-healthcheck = "crypto_quant.observability.healthcheck:main"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+optional-dependencies.dev = { file = ["requirements-dev.txt"] }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 extend-ignore = ["C408", "BLE001"]
@@ -8,10 +34,20 @@ extend-ignore = ["C408", "BLE001"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["crypto_quant"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
 
 [tool.mypy]
 python_version = "3.11"
+mypy_path = "src"
 ignore_missing_imports = true
 explicit_package_bases = true
 check_untyped_defs = true
-

@@ -1,8 +1,8 @@
 import pandas as pd
 
-from quant_models.gex_risk_manager import GexRiskManager
-from quant_models.super_confluence import ConfluenceVerdict, SuperConfluenceFilter
-from research.event_backtester import (
+from crypto_quant.quant_models.gex_risk_manager import GexRiskManager
+from crypto_quant.quant_models.super_confluence import ConfluenceVerdict, SuperConfluenceFilter
+from crypto_quant.research.event_backtester import (
     BacktestEngine,
     TradeConfig,
     TradeRecord,
@@ -155,7 +155,7 @@ def test_compute_performance_report_quant_metrics():
 
 
 def test_sample_size_label():
-    from research.event_backtester import sample_size_label
+    from crypto_quant.research.event_backtester import sample_size_label
 
     assert sample_size_label(0) == "INSUFFICIENT"
     assert sample_size_label(29) == "INSUFFICIENT"
@@ -199,7 +199,7 @@ def test_backtest_engine_slippage_and_fees():
 
 
 def test_backtest_engine_with_position_sizer():
-    from quant_models.position_sizer import PositionSizer
+    from crypto_quant.quant_models.position_sizer import PositionSizer
 
     config = TradeConfig(
         initial_balance=10000.0,
@@ -226,7 +226,7 @@ def test_backtest_engine_with_position_sizer():
 
 
 def test_backtest_engine_with_gex_history():
-    from quant_models.gex_risk_manager import GexHistory
+    from crypto_quant.quant_models.gex_risk_manager import GexHistory
 
     config = TradeConfig(
         initial_balance=10000.0,

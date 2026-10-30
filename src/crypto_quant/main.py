@@ -14,15 +14,15 @@ from datetime import UTC, datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
-from config.settings import SETTINGS
-from data_ingestion.hyperliquid_streamer import HyperliquidStreamer
-from execution.ccxt_broker import CCXTBroker
-from execution.interfaces import ExecutionEngine
-from execution.live_engine import PaperTrader
-from quant_models.macro_filter import MacroCalendarFilter
-from quant_models.position_sizer import PositionSizer
-from quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
-from visualizer.cli_dashboard import CLIDashboard
+from crypto_quant.config.settings import SETTINGS
+from crypto_quant.data_ingestion.hyperliquid_streamer import HyperliquidStreamer
+from crypto_quant.execution.ccxt_broker import CCXTBroker
+from crypto_quant.execution.interfaces import ExecutionEngine
+from crypto_quant.execution.live_engine import PaperTrader
+from crypto_quant.quant_models.macro_filter import MacroCalendarFilter
+from crypto_quant.quant_models.position_sizer import PositionSizer
+from crypto_quant.quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
+from crypto_quant.visualizer.cli_dashboard import CLIDashboard
 
 _LOG: logging.Logger = logging.getLogger(__name__)
 
