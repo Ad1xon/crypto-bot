@@ -1,0 +1,173 @@
+# Crypto-Quant runtime stack.
+#
+#   docker compose up -d                       -> bot + GEX collector
+#   docker compose --profile monitoring up -d  -> + Prometheus, Alertmanager, Grafana, node-exporter, cAdvisor
+#
+# On Linux hosts the bind-mounted data/logs dirs must be writable by UID 10001:
+#   sudo chown -R 10001:10001 data logs
+
+name: crypto-quant
+
+x-app: &app
+  image: ${IMAGE:-ghcr.io/ad1xon/crypto-bot}:${IMAGE_TAG:-latest}
+  build:
+    context: .
+    args:
+      VERSION: ${IMAGE_TAG:-dev}
+  env_file: .env
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+  networks:
+    - backend
+
+x-app-env: &app-env
+  DASHBOARD_ENABLED: "false"
+  LOG_FORMAT: json
+  MPLCONFIGDIR: /tmp/matplotlib
+
+services:
+  gex-collector:
+    <<: *app
+    command: ["crypto-quant-gex"]
+    environment:
+      <<: *app-env
+      METRICS_PORT: "9101"
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data
+    healthcheck:
+      test: ["CMD", "crypto-quant-healthcheck", "--port", "9101",
+             "--metric", "crypto_quant_gex_last_snapshot_timestamp_seconds", "--max-age", "90"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 384m
+          cpus: "0.5"
+
+  bot:
+    <<: *app
+    command: ["crypto-quant"]
+    environment:
+      <<: *app-env
+      METRICS_PORT: "9100"
+    volumes:
+      - ${DATA_DIR:-./data}:/app/data
+      - ${LOGS_DIR:-./logs}:/app/logs
+      - hf-cache:/app/.cache
+    depends_on:
+      gex-collector:
+        condition: service_started
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "1.5"
+
+  # ---------------------------------------------------------------- monitoring
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=5GB
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks: [backend]
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./monitoring/alertmanager:/etc/alertmanager:ro
+      - alertmanager-data:/alertmanager
+    secrets:
+      - discord_webhook_url
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks: [backend]
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on: [prometheus]
+    networks: [backend]
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+    networks: [backend]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks: [backend]
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  hf-cache:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+
+secrets:
+  discord_webhook_url:
+    file: ./secrets/discord_webhook_url

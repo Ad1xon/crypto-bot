@@ -1,5 +1,9 @@
 .env
+.compose.env
 __pycache__/
+*.egg-info/
+build/
+dist/
 data/
 *.parquet
 *.log
@@ -9,8 +13,23 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+junit.xml
 *.html
 .cursorrules
 STATE.md
 .vscode
 
+# Secrets mounted into containers
+secrets/*
+!secrets/README.md
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+tfplan
+crash.log
