@@ -16,7 +16,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.11"
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/crypto-bot
+  IMAGE_NAME: ghcr.io/ad1xon/crypto-bot
 
 jobs:
   quality:
@@ -116,7 +116,7 @@ jobs:
           dockerfile: Dockerfile
           failure-threshold: error
       - name: Trivy config scan (Dockerfile, compose, Terraform)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
@@ -126,6 +126,7 @@ jobs:
           exit-code: "0"
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
@@ -174,7 +175,7 @@ jobs:
           docker run --rm --entrypoint python crypto-quant:scan -c "import crypto_quant.main, crypto_quant.observability.metrics"
           docker run --rm --entrypoint id crypto-quant:scan | grep -q "uid=10001"
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: crypto-quant:scan
           format: sarif
@@ -184,6 +185,7 @@ jobs:
           exit-code: "0"
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
