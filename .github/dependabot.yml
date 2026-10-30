@@ -13,13 +13,25 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
 
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    groups:
+      docker-deps:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
 
   - package-ecosystem: terraform
     directory: /infra/terraform
     schedule:
       interval: weekly
+    groups:
+      terraform-deps:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
