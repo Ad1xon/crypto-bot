@@ -28,7 +28,7 @@ def _sample(name: str, labels: dict[str, str] | None = None) -> float:
     return 0.0 if value is None else value
 
 
-# --- healthcheck --------------------------------------------------------------
+# healthcheck
 
 
 def test_parse_gauge_reads_unlabelled_value() -> None:
@@ -58,7 +58,7 @@ def test_evaluate_unhealthy_when_never_set() -> None:
     assert "never" in reason
 
 
-# --- metrics ------------------------------------------------------------------
+# metrics
 
 
 def test_start_metrics_server_disabled_on_port_zero() -> None:
@@ -117,7 +117,7 @@ def test_gex_snapshot_age(tmp_path: pathlib.Path) -> None:
     assert abs(age - 42.0) < 1e-6
 
 
-# --- logging ------------------------------------------------------------------
+# logging
 
 
 def test_json_formatter_emits_valid_json() -> None:

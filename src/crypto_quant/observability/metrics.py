@@ -23,7 +23,7 @@ NAMESPACE: Final[str] = "crypto_quant"
 
 BUILD_INFO = Info(f"{NAMESPACE}_build", "Static build and runtime mode information.")
 
-# --- Market data ------------------------------------------------------------
+# Market data
 WS_CONNECTED = Gauge(f"{NAMESPACE}_ws_connected", "1 while the Hyperliquid WebSocket is connected.")
 WS_RECONNECTS_TOTAL = Counter(f"{NAMESPACE}_ws_reconnects_total", "WebSocket disconnects followed by a reconnect.")
 WS_MESSAGES_TOTAL = Counter(f"{NAMESPACE}_ws_messages_total", "WebSocket messages received.", ["channel"])
@@ -35,7 +35,7 @@ MID_PRICE = Gauge(f"{NAMESPACE}_mid_price_usd", "Best bid/ask mid price.")
 SPREAD = Gauge(f"{NAMESPACE}_spread_usd", "Best ask minus best bid.")
 CVD = Gauge(f"{NAMESPACE}_cvd_btc", "Session cumulative volume delta.")
 
-# --- Signal pipeline --------------------------------------------------------
+# Signal pipeline
 SIGNALS_TOTAL = Counter(
     f"{NAMESPACE}_signals_total",
     "Absorption signals detected, split by final verdict.",
@@ -47,7 +47,7 @@ SIGNAL_EVAL_SECONDS = Histogram(
     buckets=(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25),
 )
 
-# --- Execution --------------------------------------------------------------
+# Execution
 ORDERS_TOTAL = Counter(
     f"{NAMESPACE}_orders_total",
     "Entry orders by engine, side and result.",
@@ -69,14 +69,14 @@ SESSION_PNL = Gauge(f"{NAMESPACE}_session_pnl_usdt", "Realised net PnL of the cu
 POSITION_SIZE = Gauge(f"{NAMESPACE}_position_size_btc", "Signed open position (long > 0, short < 0).")
 KILL_SWITCH_ACTIVE = Gauge(f"{NAMESPACE}_kill_switch_active", "1 when new entries are frozen by a risk guard.")
 
-# --- Context filters --------------------------------------------------------
+# Context filters
 MACRO_BLACKOUT = Gauge(f"{NAMESPACE}_macro_blackout", "1 inside a high-impact macro event blackout window.")
 SENTIMENT_NET = Gauge(f"{NAMESPACE}_sentiment_net_score", "FinBERT net sentiment score in [-1, 1].")
 GEX_SNAPSHOT_AGE = Gauge(
     f"{NAMESPACE}_gex_snapshot_age_seconds", "Age of live_gex.json as seen by the bot (-1 if missing)."
 )
 
-# --- GEX collector (separate process) ----------------------------------------
+# GEX collector (separate process)
 GEX_LAST_SNAPSHOT_TS = Gauge(
     f"{NAMESPACE}_gex_last_snapshot_timestamp_seconds", "Unix time of the last successful Deribit snapshot."
 )
