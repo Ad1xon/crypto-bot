@@ -2,6 +2,9 @@
 
 Set ``LIVE_MODE=True`` in ``.env`` to route signals through ``CCXTBroker``
 (real Hyperliquid orders). The default ``LIVE_MODE=False`` uses ``PaperTrader``.
+
+``DASHBOARD_ENABLED=False`` runs headless (Docker): logs go to stdout and the
+Rich UI is skipped. Prometheus metrics are served on ``METRICS_PORT``.
 """
 
 from __future__ import annotations
@@ -10,50 +13,34 @@ import asyncio
 import logging
 import signal
 import sys
+import time
 from datetime import UTC, datetime
-from logging.handlers import TimedRotatingFileHandler
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Final
 
 from crypto_quant.config.settings import SETTINGS
 from crypto_quant.data_ingestion.hyperliquid_streamer import HyperliquidStreamer
 from crypto_quant.execution.ccxt_broker import CCXTBroker
 from crypto_quant.execution.interfaces import ExecutionEngine
 from crypto_quant.execution.live_engine import PaperTrader
+from crypto_quant.observability import metrics
+from crypto_quant.observability.logging_setup import configure_logging
 from crypto_quant.quant_models.macro_filter import MacroCalendarFilter
 from crypto_quant.quant_models.position_sizer import PositionSizer
 from crypto_quant.quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
 from crypto_quant.visualizer.cli_dashboard import CLIDashboard
 
 _LOG: logging.Logger = logging.getLogger(__name__)
+_GEX_FILE: Final[Path] = Path("data/live_gex.json")
+_METRICS_SAMPLE_INTERVAL_S: Final[float] = 15.0
 
 
-def _configure_logging(
-    level: str = "INFO",
-    log_file: str = "logs/app.log",
-    retention_days: int = 5,
-) -> None:
-    """Route all output to a rotating file so Rich owns stdout exclusively.
-
-    Rotates daily at midnight and retains log files for the last ``retention_days``.
-    """
-    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-    file_handler = TimedRotatingFileHandler(
-        filename=log_file,
-        when="midnight",
-        interval=1,
-        backupCount=retention_days,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(
-        logging.Formatter(
-            fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S",
-        )
-    )
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        handlers=[file_handler],
-    )
+def _package_version() -> str:
+    try:
+        return version("crypto-quant")
+    except PackageNotFoundError:
+        return "dev"
 
 
 async def _build_execution_engine() -> ExecutionEngine:
@@ -110,7 +97,7 @@ def _register_sigterm(loop: asyncio.AbstractEventLoop, main_task: asyncio.Task) 
 
 
 async def _update_background_tasks(
-    dashboard: CLIDashboard,
+    dashboard: CLIDashboard | None,
     macro_filter: MacroCalendarFilter,
     sentiment_analyzer: CryptoSentimentAnalyzer,
 ) -> None:
@@ -125,15 +112,18 @@ async def _update_background_tasks(
 
             # Update sentiment (runs FinBERT in thread pool)
             score = await sentiment_analyzer.update_sentiment()
+            metrics.SENTIMENT_NET.set(score.net_score)
 
             allowed = macro_filter.is_trading_allowed()
+            metrics.MACRO_BLACKOUT.set(0 if allowed else 1)
             macro_status = "SAFE (Trading Allowed)" if allowed else "DANGER (Blackout)"
 
             sentiment_str = (
                 f"Bull: {score.bullish_mentions} | Bear: {score.bearish_mentions} | Net: {score.net_score:.2f}"
             )
 
-            dashboard.update_extras(sentiment=sentiment_str, macro=macro_status)
+            if dashboard is not None:
+                dashboard.update_extras(sentiment=sentiment_str, macro=macro_status)
 
             # Wait 5 minutes before updating sentiment again
             await asyncio.sleep(300)
@@ -144,6 +134,30 @@ async def _update_background_tasks(
             await asyncio.sleep(60)
 
 
+def _gex_snapshot_age_s(path: Path = _GEX_FILE, now_s: float | None = None) -> float:
+    """Seconds since the GEX collector last rewrote ``live_gex.json``; -1 if missing."""
+    try:
+        mtime: float = path.stat().st_mtime
+    except OSError:
+        return -1.0
+    return (now_s if now_s is not None else time.time()) - mtime
+
+
+async def _sample_runtime_metrics(engine: ExecutionEngine) -> None:
+    """Publish engine risk state and GEX freshness to Prometheus gauges."""
+    while True:
+        try:
+            balance: float = await engine.fetch_balance()
+            metrics.record_engine_snapshot(engine.risk_snapshot(), balance)
+            metrics.GEX_SNAPSHOT_AGE.set(_gex_snapshot_age_s())
+            await asyncio.sleep(_METRICS_SAMPLE_INTERVAL_S)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            _LOG.error("Metrics sampler error: %s", exc)
+            await asyncio.sleep(_METRICS_SAMPLE_INTERVAL_S)
+
+
 async def _run() -> None:
     macro_filter = MacroCalendarFilter()
     await macro_filter.fetch_events()
@@ -151,7 +165,9 @@ async def _run() -> None:
     sentiment_analyzer = CryptoSentimentAnalyzer()
 
     engine: ExecutionEngine = await _build_execution_engine()
-    dashboard = CLIDashboard(symbol=SETTINGS.hyperliquid_ws.symbol)
+    dashboard: CLIDashboard | None = (
+        CLIDashboard(symbol=SETTINGS.hyperliquid_ws.symbol) if SETTINGS.dashboard_enabled else None
+    )
     streamer = HyperliquidStreamer(
         config=SETTINGS,
         dashboard=dashboard,
@@ -160,13 +176,16 @@ async def _run() -> None:
         sentiment_analyzer=sentiment_analyzer,
     )
 
-    # Start the background task
-    bg_task = asyncio.create_task(_update_background_tasks(dashboard, macro_filter, sentiment_analyzer))
+    bg_tasks = [
+        asyncio.create_task(_update_background_tasks(dashboard, macro_filter, sentiment_analyzer)),
+        asyncio.create_task(_sample_runtime_metrics(engine)),
+    ]
 
     try:
         await streamer.start()
     finally:
-        bg_task.cancel()
+        for task in bg_tasks:
+            task.cancel()
         await streamer.stop()
         if isinstance(engine, CCXTBroker):
             await engine.close()
@@ -174,7 +193,20 @@ async def _run() -> None:
 
 
 def main() -> None:
-    _configure_logging(level=SETTINGS.log_level, log_file=SETTINGS.log_file)
+    configure_logging(
+        level=SETTINGS.log_level,
+        log_file=SETTINGS.log_file,
+        log_format=SETTINGS.log_format,
+        to_stdout=not SETTINGS.dashboard_enabled,
+    )
+    metrics.start_metrics_server(
+        SETTINGS.metrics_port,
+        build_labels={
+            "version": _package_version(),
+            "mode": "live" if SETTINGS.live_mode else "paper",
+            "symbol": SETTINGS.hyperliquid_ws.symbol,
+        },
+    )
     _LOG.info(
         "V3-Crypto-Quant starting — symbol=%s live_mode=%s log_file=%s",
         SETTINGS.hyperliquid_ws.symbol,

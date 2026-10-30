@@ -11,6 +11,7 @@ import ccxt.async_support as ccxt
 
 from crypto_quant.execution.discord_alerter import DiscordAlerter
 from crypto_quant.execution.interfaces import ExecutionEngine
+from crypto_quant.observability import metrics
 from crypto_quant.quant_models.position_sizer import PositionSizer, gex_size_multiplier
 
 _LOG: Final[logging.Logger] = logging.getLogger(__name__)
@@ -321,6 +322,14 @@ class CCXTBroker(ExecutionEngine):
     def is_on_cooldown(self, current_time: float) -> bool:
         return current_time - self._last_trade_time < self._cooldown_s
 
+    def risk_snapshot(self) -> metrics.EngineSnapshot:
+        signed: float = -self._position_btc if self._position == "SHORT" else self._position_btc
+        return metrics.EngineSnapshot(
+            position_btc=signed,
+            session_pnl_usdt=self._session_pnl,
+            kill_switch_active=self._system_fault or self._session_pnl <= -self._max_daily_loss_usdt,
+        )
+
     async def fetch_balance(self) -> float:
         """Return free collateral balance (settle currency of the symbol) via async REST call.
 
@@ -467,6 +476,7 @@ class CCXTBroker(ExecutionEngine):
         else:
             net_pnl = self._position_btc * (self._entry_price - current_price) - fee_cost
         self._session_pnl += net_pnl
+        metrics.TRADES_CLOSED_TOTAL.labels(engine="live", outcome="MARKET_EXIT").inc()
 
         cancel_ok: bool = False
         for attempt in range(1, _MAX_CANCEL_RETRIES + 1):
@@ -652,8 +662,12 @@ class CCXTBroker(ExecutionEngine):
 
             fill_ts: float = time.perf_counter()
             latency_ms: float | None = None
+            metrics.ORDERS_TOTAL.labels(
+                engine="live", side="buy" if direction == "LONG" else "sell", status="filled"
+            ).inc()
             if signal_ts is not None:
                 latency_ms = (fill_ts - signal_ts) * 1000.0
+                metrics.ORDER_LATENCY_SECONDS.labels(engine="live").observe(latency_ms / 1000.0)
                 _LOG.info("Order executed. Latency: %.2f ms", latency_ms)
 
             order_id: str = str(order.get("id", "n/a"))
@@ -707,6 +721,9 @@ class CCXTBroker(ExecutionEngine):
             )
 
         except (ccxt.NetworkError, ccxt.RateLimitExceeded, ccxt.BaseError) as exc:
+            metrics.ORDERS_TOTAL.labels(
+                engine="live", side="buy" if direction == "LONG" else "sell", status="error"
+            ).inc()
             self._consecutive_errors += 1
             self._last_trade_time = current_time  # Trigger cooldown immediately to prevent rapid error loops
             _LOG.error(

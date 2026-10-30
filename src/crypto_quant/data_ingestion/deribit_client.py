@@ -27,6 +27,7 @@ from typing import Final
 import requests
 
 from crypto_quant.config.settings import SETTINGS
+from crypto_quant.observability import metrics
 from crypto_quant.quant_models.gex_calculator import (
     bs_gamma as _bs_gamma,
 )
@@ -127,13 +128,15 @@ def should_append_history(last_written_s: float | None, now_s: float, interval_s
 def main() -> None:
     """Entry point: poll Deribit in a loop and persist GEX snapshots."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Deribit GEX client started - writing to {OUTPUT_FILE}")
+    metrics.start_metrics_server(SETTINGS.metrics_port, build_labels={"component": "gex-collector"})
+    print(f"Deribit GEX client started - writing to {OUTPUT_FILE}", flush=True)
 
     last_history_s: float | None = None
 
     while True:
         try:
-            summaries = fetch_book_summary()
+            with metrics.GEX_FETCH_SECONDS.time():
+                summaries = fetch_book_summary()
             gex, spot = compute_gex(summaries)
             payload: dict = {
                 "timestamp": datetime.now(tz=UTC).isoformat(),
@@ -141,26 +144,33 @@ def main() -> None:
                 "gex": gex,
             }
             write_atomic(payload, OUTPUT_FILE)
+            metrics.GEX_LAST_SNAPSHOT_TS.set(time.time())
+            metrics.GEX_SPOT.set(spot)
+            metrics.GEX_STRIKES.set(len(gex))
+            metrics.GEX_NET_TOTAL.set(sum(float(v) for v in gex.values()))
             now_s: float = time.monotonic()
             if should_append_history(last_history_s, now_s):
                 append_history(payload, HISTORY_DIR)
                 last_history_s = now_s
             ts = datetime.now(UTC).strftime("%H:%M:%S")
-            print(f"[{ts}] GEX snapshot written - {len(gex)} strikes, spot ~ {spot:,.0f}")
+            print(f"[{ts}] GEX snapshot written - {len(gex)} strikes, spot ~ {spot:,.0f}", flush=True)
 
         except requests.exceptions.HTTPError as exc:
+            metrics.GEX_FETCH_ERRORS_TOTAL.labels(kind="http").inc()
             status = exc.response.status_code if exc.response is not None else "?"
-            print(f"HTTP {status} error: {exc} - backing off {RATE_LIMIT_BACKOFF_S}s")
+            print(f"HTTP {status} error: {exc} - backing off {RATE_LIMIT_BACKOFF_S}s", flush=True)
             time.sleep(RATE_LIMIT_BACKOFF_S)
             continue
 
         except requests.exceptions.RequestException as exc:
-            print(f"Network error: {exc} - backing off {NETWORK_BACKOFF_S}s")
+            metrics.GEX_FETCH_ERRORS_TOTAL.labels(kind="network").inc()
+            print(f"Network error: {exc} - backing off {NETWORK_BACKOFF_S}s", flush=True)
             time.sleep(NETWORK_BACKOFF_S)
             continue
 
         except (KeyError, ValueError) as exc:
-            print(f"Data parsing error: {exc}")
+            metrics.GEX_FETCH_ERRORS_TOTAL.labels(kind="parse").inc()
+            print(f"Data parsing error: {exc}", flush=True)
 
         time.sleep(POLL_INTERVAL_S)
 

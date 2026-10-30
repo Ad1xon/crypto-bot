@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import abc
 
+from crypto_quant.observability.metrics import EngineSnapshot
+
 
 class ExecutionEngine(abc.ABC):
     """Abstract contract for all execution back-ends (paper, live, backtest)."""
+
+    def risk_snapshot(self) -> EngineSnapshot:
+        """Current position / PnL / kill-switch state for monitoring. Engines override."""
+        return EngineSnapshot()
 
     @property
     @abc.abstractmethod

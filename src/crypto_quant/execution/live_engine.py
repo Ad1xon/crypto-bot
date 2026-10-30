@@ -19,6 +19,7 @@ import pandas as pd
 
 from crypto_quant.execution.interfaces import ExecutionEngine
 from crypto_quant.execution.signal_logger import SignalAuditLogger
+from crypto_quant.observability import metrics
 from crypto_quant.quant_models.gex_risk_manager import GexRiskManager
 from crypto_quant.quant_models.macro_filter import MacroCalendarFilter
 from crypto_quant.quant_models.position_sizer import PositionSizer, cap_position_btc, gex_size_multiplier
@@ -108,6 +109,14 @@ class PaperTrader(ExecutionEngine):
 
     def is_on_cooldown(self, current_time: float) -> bool:
         return current_time - self._last_trade_time < self._cooldown_s
+
+    def risk_snapshot(self) -> metrics.EngineSnapshot:
+        signed: float = -self._position_btc if self._position == "SHORT" else self._position_btc
+        return metrics.EngineSnapshot(
+            position_btc=signed,
+            session_pnl_usdt=self._session_pnl,
+            kill_switch_active=self._session_pnl <= -self._max_daily_loss_usdt,
+        )
 
     def _build_state_dict(self) -> dict[str, Any]:
         if self._position == "LONG":
@@ -230,9 +239,12 @@ class PaperTrader(ExecutionEngine):
 
         self._open_position(signal_type, current_price, gex_value=gex_value, sentiment_score=sentiment_score)
         self._save_state()
+        side: str = "buy" if self._position == "LONG" else "sell"
+        metrics.ORDERS_TOTAL.labels(engine="paper", side=side, status="filled").inc()
         if signal_ts is not None:
             fill_ts: float = time.perf_counter()
             latency_ms: float = (fill_ts - signal_ts) * 1000.0
+            metrics.ORDER_LATENCY_SECONDS.labels(engine="paper").observe(latency_ms / 1000.0)
             _LOG.info("Order executed. Latency: %.2f ms", latency_ms)
 
     def _open_position(
@@ -376,6 +388,7 @@ class PaperTrader(ExecutionEngine):
         net_pnl: float = gross_pnl - total_fees
         self._balance += gross_pnl - exit_fee
         self._session_pnl += net_pnl
+        metrics.TRADES_CLOSED_TOTAL.labels(engine="paper", outcome=outcome).inc()
 
         pnl_sign: str = "+" if net_pnl >= 0.0 else ""
         _LOG.warning(
@@ -498,9 +511,10 @@ class LiveSignalEngine:
         if len(self._window) < _MIN_TICKS:
             return
 
-        df: pd.DataFrame = self._build_frame()
-        df = self._detector.smooth_ofi(df)
-        signals: pd.DataFrame = self._detector.detect_cvd_divergence(df)
+        with metrics.SIGNAL_EVAL_SECONDS.time():
+            df: pd.DataFrame = self._build_frame()
+            df = self._detector.smooth_ofi(df)
+            signals: pd.DataFrame = self._detector.detect_cvd_divergence(df)
 
         if signals.empty:
             return
@@ -549,6 +563,12 @@ class LiveSignalEngine:
             rejection_reason = "CONFLUENCE_FILTER"
         elif self._macro_filter is not None and not self._macro_filter.is_trading_allowed(timestamp_ms):
             rejection_reason = "MACRO_BLACKOUT"
+
+        metrics.SIGNALS_TOTAL.labels(
+            signal_type=signal_type,
+            verdict="APPROVED" if rejection_reason is None else "REJECTED",
+            reason=rejection_reason or "none",
+        ).inc()
 
         if self._audit_logger is not None:
             self._audit_logger.log_signal(

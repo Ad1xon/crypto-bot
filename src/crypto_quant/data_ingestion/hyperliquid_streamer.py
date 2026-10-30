@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -17,6 +18,7 @@ from crypto_quant.data_ingestion.interfaces import DataStreamer
 from crypto_quant.data_ingestion.tick_logger import TickLogger
 from crypto_quant.execution.interfaces import ExecutionEngine
 from crypto_quant.execution.live_engine import LiveSignalEngine
+from crypto_quant.observability import metrics
 from crypto_quant.quant_models.gex_risk_manager import GexRiskManager
 from crypto_quant.quant_models.macro_filter import MacroCalendarFilter
 from crypto_quant.quant_models.sentiment_analyzer import CryptoSentimentAnalyzer
@@ -101,15 +103,18 @@ class HyperliquidStreamer(DataStreamer):
                     await ws.send(self._subscribe_payload)
                     await ws.send(self._subscribe_trades)
                     self._live_engine.clear_window()
+                    metrics.WS_CONNECTED.set(1)
                     await self._receive_loop(ws)
             except (ConnectionClosed, WebSocketException, OSError) as exc:
                 logger.warning("Hyperliquid WebSocket lost: %s", exc)
             finally:
                 self._ws = None
+                metrics.WS_CONNECTED.set(0)
 
             if not self._running:
                 break
 
+            metrics.WS_RECONNECTS_TOTAL.inc()
             await asyncio.sleep(delay)
             delay = min(delay * self._reconnect.backoff_factor, self._reconnect.max_delay_s)
 
@@ -125,6 +130,9 @@ class HyperliquidStreamer(DataStreamer):
 
     def _dispatch(self, payload: dict[str, Any]) -> None:
         channel = payload.get("channel", "")
+        if channel in ("l2Book", "trades"):
+            metrics.WS_MESSAGES_TOTAL.labels(channel=channel).inc()
+            metrics.WS_LAST_MESSAGE_TS.set(time.time())
         if channel == "l2Book":
             self._handle_orderbook(payload.get("data", {}))
         elif channel == "trades":
@@ -141,6 +149,10 @@ class HyperliquidStreamer(DataStreamer):
         best_bid = bids[0] if bids else (0.0, 0.0)
         best_ask = asks[0] if asks else (0.0, 0.0)
         ofi = best_bid[1] - best_ask[1]
+        if best_bid[0] > 0 and best_ask[0] > 0:
+            metrics.MID_PRICE.set((best_bid[0] + best_ask[0]) / 2.0)
+            metrics.SPREAD.set(best_ask[0] - best_bid[0])
+        metrics.CVD.set(self._cvd)
 
         self._tick_logger.put_bbo(
             {

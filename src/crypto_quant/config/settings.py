@@ -16,6 +16,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _env_bool(key: str, default: str) -> bool:
+    return os.getenv(key, default).strip().lower() in {"true", "1", "yes"}
+
+
 def _require_env(key: str) -> str:
     value: str = os.getenv(key, "")
     invalid_placeholders = {
@@ -123,6 +127,10 @@ class AppConfig:
     max_order_size_btc: float = field(default_factory=lambda: float(os.getenv("MAX_ORDER_SIZE_BTC", "0.05")))
     default_leverage: int = field(default_factory=lambda: int(os.getenv("DEFAULT_LEVERAGE", "5")))
     slippage_tolerance_pct: float = field(default_factory=lambda: float(os.getenv("SLIPPAGE_TOLERANCE_PCT", "0.001")))
+    # Container / observability: the Rich UI needs a TTY, so Docker runs headless.
+    dashboard_enabled: bool = field(default_factory=lambda: _env_bool("DASHBOARD_ENABLED", "True"))
+    metrics_port: int = field(default_factory=lambda: int(os.getenv("METRICS_PORT", "9100")))
+    log_format: str = field(default_factory=lambda: os.getenv("LOG_FORMAT", "text"))
 
     def build_broker(self) -> BrokerConfig:
         """Construct and validate BrokerConfig.
