@@ -1,0 +1,5 @@
+# Normalise line endings: Linux containers choke on CRLF in shell/YAML files.
+* text=auto eol=lf
+*.png binary
+*.svg text
+*.parquet binary

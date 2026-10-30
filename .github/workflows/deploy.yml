@@ -1,0 +1,63 @@
+name: Deploy
+
+# Manual, gated deployment to the Hetzner host provisioned by infra/terraform.
+# Requires the "production" environment (add required reviewers in repo settings) with secrets:
+#   DEPLOY_HOST     - server IPv4 (terraform output server_ipv4)
+#   DEPLOY_SSH_KEY  - private key matching ssh_public_key_path
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g. sha-1a2b3c4, 0.5.0, latest)"
+        required: true
+        default: latest
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Pull & restart stack
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          ssh deploy@"$HOST" bash -s <<EOF
+          set -euo pipefail
+          cd /opt/crypto-quant
+          git fetch --quiet origin && git checkout --quiet origin/main
+          export IMAGE_TAG='${IMAGE_TAG}'
+          COMPOSE="docker compose --env-file .env --env-file .compose.env --profile monitoring"
+          \$COMPOSE pull bot gex-collector
+          \$COMPOSE up -d --remove-orphans
+          docker image prune -f
+          EOF
+
+      - name: Wait for healthy containers
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          for i in $(seq 1 30); do
+            status=$(ssh deploy@"$HOST" "docker inspect -f '{{.State.Health.Status}}' crypto-quant-bot-1 crypto-quant-gex-collector-1" | sort -u | tr '\n' ' ')
+            echo "attempt $i: $status"
+            [ "$status" = "healthy " ] && exit 0
+            sleep 10
+          done
+          echo "Containers did not become healthy" && exit 1
