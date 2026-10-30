@@ -1,0 +1,140 @@
+# Alerting philosophy: page on symptoms that cost money or data, warn on leading indicators.
+# Every alert links to a runbook section in docs/RUNBOOK.md.
+
+groups:
+  - name: crypto-quant.availability
+    rules:
+      - alert: BotDown
+        expr: up{job="crypto-quant-bot"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Trading bot is not being scraped"
+          description: "Prometheus cannot reach bot:9100 for over 1 minute. Container crashed or is restarting."
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#botdown"
+
+      - alert: GexCollectorDown
+        expr: up{job="crypto-quant-gex"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GEX collector is not being scraped"
+          description: "Without fresh GEX every signal is rejected by the confluence filter."
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#gexcollectordown"
+
+      - alert: BotRestartLoop
+        expr: changes(process_start_time_seconds{job=~"crypto-quant-.*"}[15m]) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} restarted {{ $value }} times in 15 minutes"
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#botrestartloop"
+
+  - name: crypto-quant.market-data
+    rules:
+      - alert: MarketDataStale
+        expr: time() - crypto_quant_ws_last_message_timestamp_seconds > 60
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No Hyperliquid WebSocket message for {{ $value | humanizeDuration }}"
+          description: "Process is up but the feed is silent: signals and trailing stops are blind."
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#marketdatastale"
+
+      - alert: WebSocketFlapping
+        expr: increase(crypto_quant_ws_reconnects_total[15m]) > 5
+        labels:
+          severity: warning
+        annotations:
+          summary: "WebSocket reconnected {{ $value | humanize }} times in 15 minutes"
+          description: "Each reconnect clears the rolling window; frequent flaps create tick-data gaps."
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#websocketflapping"
+
+      - alert: GexSnapshotStale
+        expr: time() - crypto_quant_gex_last_snapshot_timestamp_seconds > 120
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deribit GEX snapshot is {{ $value | humanizeDuration }} old"
+          description: "GexRiskManager drops snapshots older than 30 s, so the GEX gate is closed."
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#gexsnapshotstale"
+
+      - alert: GexFetchErrors
+        expr: increase(crypto_quant_gex_fetch_errors_total[10m]) > 5
+        labels:
+          severity: warning
+        annotations:
+          summary: "Deribit polling failing ({{ $labels.kind }})"
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#gexfetcherrors"
+
+  - name: crypto-quant.risk
+    rules:
+      - alert: KillSwitchActive
+        expr: crypto_quant_kill_switch_active == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kill-switch / system fault engaged - new entries frozen"
+          description: "Daily loss limit breached or bracket-cancel failure. Manual review required."
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#killswitchactive"
+
+      - alert: SessionDrawdownWarning
+        expr: crypto_quant_session_pnl_usdt < -250
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Session PnL {{ $value | humanize }} USDT - halfway to the kill-switch"
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#sessiondrawdownwarning"
+
+      - alert: OrderLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le, engine) (rate(crypto_quant_order_latency_seconds_bucket[10m]))) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 signal-to-ack latency {{ $value | humanizeDuration }} ({{ $labels.engine }})"
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#orderlatencyhigh"
+
+      - alert: OrderErrors
+        expr: increase(crypto_quant_orders_total{status="error"}[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Exchange rejected {{ $value | humanize }} order(s) in 15 minutes"
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#ordererrors"
+
+  - name: crypto-quant.host
+    rules:
+      - alert: HostDiskFillingUp
+        expr: |
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"} < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.mountpoint }} has less than 15% free space"
+          description: "Tick parquet files grow ~25 MB/day; a full disk silently stops data collection."
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#hostdiskfillingup"
+
+      - alert: HostMemoryPressure
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Less than 10% RAM available (FinBERT + torch is the main consumer)"
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#hostmemorypressure"
+
+      - alert: ContainerOomKilled
+        expr: increase(container_oom_events_total{name=~"crypto-quant-.*"}[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container {{ $labels.name }} was OOM-killed"
+          runbook_url: "https://github.com/Ad1xon/crypto-bot/blob/main/docs/RUNBOOK.md#hostmemorypressure"
