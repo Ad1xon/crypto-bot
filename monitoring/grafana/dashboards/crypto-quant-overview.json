@@ -4,9 +4,9 @@
   "tags": ["crypto-quant", "trading"],
   "timezone": "utc",
   "schemaVersion": 39,
-  "version": 1,
-  "refresh": "10s",
-  "time": { "from": "now-6h", "to": "now" },
+  "version": 2,
+  "refresh": "5s",
+  "time": { "from": "now-1h", "to": "now" },
   "templating": { "list": [] },
   "annotations": { "list": [] },
   "panels": [
@@ -15,7 +15,7 @@
       "id": 1, "type": "stat", "title": "WebSocket",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "crypto_quant_ws_connected" }],
+      "targets": [{ "refId": "A", "expr": "crypto_quant_ws_connected{job=\"crypto-quant-bot\"}" }],
       "fieldConfig": { "defaults": {
         "mappings": [{ "type": "value", "options": { "0": { "text": "DISCONNECTED", "color": "red" }, "1": { "text": "CONNECTED", "color": "green" } } }],
         "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
@@ -26,7 +26,7 @@
       "id": 2, "type": "stat", "title": "Feed age",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "time() - crypto_quant_ws_last_message_timestamp_seconds" }],
+      "targets": [{ "refId": "A", "expr": "time() - crypto_quant_ws_last_message_timestamp_seconds{job=\"crypto-quant-bot\"}" }],
       "fieldConfig": { "defaults": { "unit": "s", "decimals": 1,
         "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 60 }] }
       }, "overrides": [] },
@@ -36,7 +36,7 @@
       "id": 3, "type": "stat", "title": "GEX snapshot age",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "time() - crypto_quant_gex_last_snapshot_timestamp_seconds" }],
+      "targets": [{ "refId": "A", "expr": "time() - crypto_quant_gex_last_snapshot_timestamp_seconds{job=\"crypto-quant-gex\"}" }],
       "fieldConfig": { "defaults": { "unit": "s", "decimals": 0,
         "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 30 }, { "color": "red", "value": 120 }] }
       }, "overrides": [] },
@@ -46,7 +46,7 @@
       "id": 4, "type": "stat", "title": "Macro filter",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "crypto_quant_macro_blackout" }],
+      "targets": [{ "refId": "A", "expr": "crypto_quant_macro_blackout{job=\"crypto-quant-bot\"}" }],
       "fieldConfig": { "defaults": {
         "mappings": [{ "type": "value", "options": { "0": { "text": "TRADING ALLOWED", "color": "green" }, "1": { "text": "BLACKOUT", "color": "orange" } } }],
         "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
@@ -57,7 +57,7 @@
       "id": 5, "type": "stat", "title": "Kill-switch",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "crypto_quant_kill_switch_active" }],
+      "targets": [{ "refId": "A", "expr": "crypto_quant_kill_switch_active{job=\"crypto-quant-bot\"}" }],
       "fieldConfig": { "defaults": {
         "mappings": [{ "type": "value", "options": { "0": { "text": "ARMED", "color": "green" }, "1": { "text": "TRIPPED", "color": "red" } } }],
         "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
@@ -68,7 +68,7 @@
       "id": 6, "type": "stat", "title": "Reconnects (24h)",
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "sum(increase(crypto_quant_ws_reconnects_total[24h]))" }],
+      "targets": [{ "refId": "A", "expr": "sum(increase(crypto_quant_ws_reconnects_total{job=\"crypto-quant-bot\"}[24h])) or vector(0)" }],
       "fieldConfig": { "defaults": { "decimals": 0,
         "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 50 }] }
       }, "overrides": [] },
@@ -81,8 +81,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "crypto_quant_mid_price_usd", "legendFormat": "Hyperliquid mid" },
-        { "refId": "B", "expr": "crypto_quant_gex_spot_usd", "legendFormat": "Deribit index" }
+        { "refId": "A", "expr": "crypto_quant_mid_price_usd{job=\"crypto-quant-bot\"}", "legendFormat": "Hyperliquid mid" },
+        { "refId": "B", "expr": "crypto_quant_gex_spot_usd{job=\"crypto-quant-gex\"}", "legendFormat": "Deribit index" }
       ],
       "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] }
     },
@@ -90,7 +90,7 @@
       "id": 8, "type": "timeseries", "title": "Session CVD",
       "gridPos": { "h": 8, "w": 6, "x": 12, "y": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "crypto_quant_cvd_btc", "legendFormat": "CVD" }],
+      "targets": [{ "refId": "A", "expr": "crypto_quant_cvd_btc{job=\"crypto-quant-bot\"}", "legendFormat": "CVD" }],
       "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 20 } }, "overrides": [] }
     },
     {
@@ -98,8 +98,8 @@
       "gridPos": { "h": 8, "w": 6, "x": 18, "y": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "crypto_quant_gex_net_total", "legendFormat": "net GEX" },
-        { "refId": "B", "expr": "crypto_quant_sentiment_net_score", "legendFormat": "FinBERT net" }
+        { "refId": "A", "expr": "crypto_quant_gex_net_total{job=\"crypto-quant-gex\"}", "legendFormat": "net GEX" },
+        { "refId": "B", "expr": "crypto_quant_sentiment_net_score{job=\"crypto-quant-bot\"}", "legendFormat": "FinBERT net" }
       ],
       "fieldConfig": { "defaults": {}, "overrides": [
         { "matcher": { "id": "byName", "options": "FinBERT net" }, "properties": [{ "id": "custom.axisPlacement", "value": "right" }, { "id": "min", "value": -1 }, { "id": "max", "value": 1 }] }
@@ -111,7 +111,7 @@
       "id": 10, "type": "timeseries", "title": "Signals per hour by verdict",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 15 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "sum by (verdict, reason) (increase(crypto_quant_signals_total[1h]))", "legendFormat": "{{verdict}} ({{reason}})" }],
+      "targets": [{ "refId": "A", "expr": "sum by (verdict, reason) (increase(crypto_quant_signals_total{job=\"crypto-quant-bot\"}[1h]))", "legendFormat": "{{verdict}} ({{reason}})" }],
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" }, "fillOpacity": 60 } }, "overrides": [] }
     },
     {
@@ -119,8 +119,8 @@
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 15 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "crypto_quant_session_pnl_usdt", "legendFormat": "session PnL" },
-        { "refId": "B", "expr": "crypto_quant_balance_usdt", "legendFormat": "balance" }
+        { "refId": "A", "expr": "crypto_quant_session_pnl_usdt{job=\"crypto-quant-bot\"}", "legendFormat": "session PnL" },
+        { "refId": "B", "expr": "crypto_quant_balance_usdt{job=\"crypto-quant-bot\"}", "legendFormat": "balance" }
       ],
       "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [
         { "matcher": { "id": "byName", "options": "balance" }, "properties": [{ "id": "custom.axisPlacement", "value": "right" }] }
@@ -130,7 +130,7 @@
       "id": 12, "type": "timeseries", "title": "Position (BTC, signed)",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 15 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "crypto_quant_position_size_btc", "legendFormat": "position" }],
+      "targets": [{ "refId": "A", "expr": "crypto_quant_position_size_btc{job=\"crypto-quant-bot\"}", "legendFormat": "position" }],
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineInterpolation": "stepAfter", "fillOpacity": 25 } }, "overrides": [] }
     },
     {
@@ -138,8 +138,8 @@
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(crypto_quant_order_latency_seconds_bucket[15m])))", "legendFormat": "p50" },
-        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(crypto_quant_order_latency_seconds_bucket[15m])))", "legendFormat": "p95" }
+        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(crypto_quant_order_latency_seconds_bucket{job=\"crypto-quant-bot\"}[15m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(crypto_quant_order_latency_seconds_bucket{job=\"crypto-quant-bot\"}[15m])))", "legendFormat": "p95" }
       ],
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
     },
@@ -147,14 +147,14 @@
       "id": 14, "type": "timeseries", "title": "Detector pass p99",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.99, sum by (le) (rate(crypto_quant_signal_evaluation_seconds_bucket[5m])))", "legendFormat": "p99" }],
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.99, sum by (le) (rate(crypto_quant_signal_evaluation_seconds_bucket{job=\"crypto-quant-bot\"}[5m])))", "legendFormat": "p99" }],
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
     },
     {
       "id": 15, "type": "timeseries", "title": "WS message rate",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "sum by (channel) (rate(crypto_quant_ws_messages_total[1m]))", "legendFormat": "{{channel}}" }],
+      "targets": [{ "refId": "A", "expr": "sum by (channel) (rate(crypto_quant_ws_messages_total{job=\"crypto-quant-bot\"}[1m]))", "legendFormat": "{{channel}}" }],
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
     },
 
