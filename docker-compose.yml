@@ -139,7 +139,7 @@ services:
       - --path.rootfs=/host
       - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
     volumes:
-      - /:/host:ro,rslave
+      - /:/host:ro
     pid: host
     networks: [backend]
 
