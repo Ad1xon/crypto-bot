@@ -211,3 +211,8 @@ Infrastructure: [ADR-0003](./docs/adr/0003-hetzner-terraform-infrastructure.md).
 Paper trading. Live execution via `LIVE_MODE=True` targets Hyperliquid testnet
 by default (`USE_TESTNET=True`). Flip both flags only after validating the
 backtest Profit Factor on historical tick data.
+
+## Disclaimer
+
+**This software is for educational and research purposes only.**
+Do not risk money which you are afraid to lose. USE THE SOFTWARE AT YOUR OWN RISK. The authors and contributors assume no responsibility for your trading results, execution errors, or any financial losses incurred. Always thoroughly backtest and run in paper-trading mode before deploying any live capital.
