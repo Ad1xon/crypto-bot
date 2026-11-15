@@ -28,7 +28,7 @@ updates:
     open-pull-requests-limit: 3
 
   - package-ecosystem: terraform
-    directory: /infra/terraform
+    directories: [/infra/terraform, /infra/github]
     schedule:
       interval: weekly
     groups:
