@@ -1,0 +1,62 @@
+name: Dependabot auto-merge
+
+# Turns on GitHub auto-merge for low-risk Dependabot PRs. The PR is then merged
+# by GitHub only after every *required* status check on main passes.
+#
+# Requires "Allow auto-merge" + a ruleset with required CI checks on main.
+# Both are managed as code in infra/github (terraform apply) - nothing to click in the UI.
+#
+# Policy:
+#   - semver-major             -> never auto-merged, left for manual review
+#   - docker (base images)     -> patch only (a "minor" bump can mean a new Python/Debian release)
+#   - pip / actions / terraform -> patch + minor
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Ad1xon/crypto-bot'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decide
+        id: decide
+        env:
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+        run: |
+          auto=false
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch) auto=true ;;
+            version-update:semver-minor) [ "$ECOSYSTEM" != docker ] && auto=true ;;
+          esac
+          echo "automerge=$auto" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge (squash)
+        if: steps.decide.outputs.automerge == 'true'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A grouped PR can be force-pushed by Dependabot with a bigger bump - drop auto-merge if so.
+      - name: Flag for manual review
+        if: steps.decide.outputs.automerge != 'true'
+        run: |
+          gh pr merge --disable-auto "$PR_URL" || true
+          [ "$ACTION" = "synchronize" ] && exit 0
+          gh pr comment "$PR_URL" --body "Auto-merge skipped (\`$UPDATE_TYPE\`, ecosystem \`$ECOSYSTEM\`) - needs manual review."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+          ACTION: ${{ github.event.action }}
