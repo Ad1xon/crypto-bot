@@ -1,7 +1,7 @@
 """Type stubs for the ``crypto_core`` C++ extension (src/cpp_core/bindings.cpp)."""
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
@@ -9,7 +9,7 @@ import numpy.typing as npt
 __version__: str
 MAX_DEPTH: int
 
-_FloatArray = npt.ArrayLike
+_FloatArray: TypeAlias = npt.ArrayLike
 
 class OrderBook:
     def __init__(self, depth: int = 20, auto_reset_cvd: bool = True) -> None: ...
