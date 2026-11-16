@@ -122,6 +122,8 @@ def percentile(samples: list[int], q: float) -> float:
 
 
 def run(path: pathlib.Path, repeats: int) -> None:
+    if not path.is_file():
+        raise SystemExit(f"{path} not found, record some data first: python benchmarks/bench_orderbook.py record")
     messages = load_messages(path)
     if not messages:
         raise SystemExit(f"{path} has no messages")
