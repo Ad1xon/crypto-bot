@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import time
-from datetime import UTC, date, datetime
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import websockets
@@ -15,6 +15,7 @@ from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from crypto_quant.config.settings import SETTINGS, AppConfig
 from crypto_quant.data_ingestion.interfaces import DataStreamer
+from crypto_quant.data_ingestion.order_book import OrderBookLike, create_order_book
 from crypto_quant.data_ingestion.tick_logger import TickLogger
 from crypto_quant.execution.interfaces import ExecutionEngine
 from crypto_quant.execution.live_engine import LiveSignalEngine
@@ -26,6 +27,10 @@ from crypto_quant.quant_models.smc_detectors import MicrostructureDetector
 from crypto_quant.visualizer.cli_dashboard import CLIDashboard
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _as_tuples(rows: Iterable[Sequence[float]]) -> list[tuple[float, float]]:
+    return [(float(px), float(sz)) for px, sz in rows]
 
 
 class HyperliquidStreamer(DataStreamer):
@@ -47,9 +52,7 @@ class HyperliquidStreamer(DataStreamer):
         self._running = False
         self._ws: ClientConnection | None = None
         self._dashboard = dashboard
-        self._cvd = 0.0
-        self._auto_reset_cvd = auto_reset_cvd
-        self._last_cvd_date: date | None = None
+        self._book: OrderBookLike = create_order_book(auto_reset_cvd=auto_reset_cvd)
 
         self._tick_logger = TickLogger(
             symbol=self._symbol,
@@ -138,79 +141,69 @@ class HyperliquidStreamer(DataStreamer):
         elif channel == "trades":
             self._handle_trades(payload.get("data", []))
 
+    @property
+    def cvd(self) -> float:
+        return self._book.cvd
+
     def _handle_orderbook(self, data: dict[str, Any]) -> None:
         levels = data.get("levels", [[], []])
         if not levels or not levels[0]:
             return
 
-        bids = [(float(lvl.get("px", 0)), float(lvl.get("sz", 0))) for lvl in levels[0][:20]]
-        asks = [(float(lvl.get("px", 0)), float(lvl.get("sz", 0))) for lvl in levels[1][:20]] if len(levels) > 1 else []
+        ts_ms = int(data.get("time", 0))
+        book = self._book
+        try:
+            book.update_hyperliquid(levels, ts_ms)
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("Skipping malformed l2Book message: %s", exc)
+            return
 
-        best_bid = bids[0] if bids else (0.0, 0.0)
-        best_ask = asks[0] if asks else (0.0, 0.0)
-        ofi = best_bid[1] - best_ask[1]
-        if best_bid[0] > 0 and best_ask[0] > 0:
-            metrics.MID_PRICE.set((best_bid[0] + best_ask[0]) / 2.0)
-            metrics.SPREAD.set(best_ask[0] - best_bid[0])
-        metrics.CVD.set(self._cvd)
+        # Still bid size - ask size at the top level, so the detector sees the same "ofi" as before.
+        ofi = book.top_imbalance
+        cvd = book.cvd
+        if book.is_two_sided:
+            metrics.MID_PRICE.set(book.mid_price)
+            metrics.SPREAD.set(book.spread)
+        metrics.CVD.set(cvd)
 
         self._tick_logger.put_bbo(
             {
-                "timestamp_ms": data.get("time", 0),
-                "best_bid_price": best_bid[0],
-                "best_bid_qty": best_bid[1],
-                "best_ask_price": best_ask[0],
-                "best_ask_qty": best_ask[1],
-                "spread": best_ask[0] - best_bid[0],
+                "timestamp_ms": ts_ms,
+                "best_bid_price": book.best_bid_price,
+                "best_bid_qty": book.best_bid_size,
+                "best_ask_price": book.best_ask_price,
+                "best_ask_qty": book.best_ask_size,
+                "spread": book.spread,
                 "ofi": ofi,
             }
         )
 
         if self._dashboard is not None:
-            self._dashboard.update(bids, asks, self._cvd)
+            self._dashboard.update(_as_tuples(book.bids()), _as_tuples(book.asks()), cvd)
 
         self._live_engine.process_tick(
-            timestamp_ms=data.get("time", 0),
-            price=best_bid[0],
-            cvd=self._cvd,
+            timestamp_ms=ts_ms,
+            price=book.best_bid_price,
+            cvd=cvd,
             ofi=ofi,
         )
 
     def reset_cvd(self, initial_value: float = 0.0) -> None:
         """Reset cumulative volume delta to prevent multi-day unbounded drift."""
-        logger.info("Resetting CVD from %.4f to %.4f", self._cvd, initial_value)
-        self._cvd = initial_value
-
-    def _maybe_reset_cvd(self, timestamp_ms: int) -> None:
-        """Automatically reset CVD at 00:00:00 UTC when a new trading day begins."""
-        if not self._auto_reset_cvd or timestamp_ms <= 0:
-            return
-
-        trade_dt = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=UTC)
-        current_date = trade_dt.date()
-
-        if self._last_cvd_date is not None and current_date > self._last_cvd_date:
-            logger.info(
-                "New UTC session (%s) detected — resetting CVD from %.4f to 0.0",
-                current_date,
-                self._cvd,
-            )
-            self._cvd = 0.0
-        self._last_cvd_date = current_date
+        logger.info("Resetting CVD from %.4f to %.4f", self._book.cvd, initial_value)
+        self._book.reset_cvd(initial_value)
 
     def _handle_trades(self, trades: list[dict[str, Any]]) -> None:
         for trade in trades:
             ts_ms = int(trade.get("time", 0))
-            self._maybe_reset_cvd(ts_ms)
-
             sz = float(trade.get("sz", 0))
             px = float(trade.get("px", 0))
             raw_side = trade.get("side") or trade.get("dir") or "B"
             is_buy: bool = raw_side in ("B", "Buy", "BUY")
             side: str = "Buy" if is_buy else "Sell"
 
-            delta = sz if is_buy else -sz
-            self._cvd += delta
+            # CVD resets on the first trade of a new UTC day (handled inside the order book).
+            self._book.apply_trade(px, sz, is_buy, ts_ms)
             self._live_engine.update_trade(px, sz)
 
             self._tick_logger.put_trade(
