@@ -4,6 +4,7 @@
 .venv
 venv
 **/__pycache__
+src/cpp_core/build
 **/*.pyc
 .mypy_cache
 .pytest_cache
@@ -20,6 +21,7 @@ images/
 infra/
 monitoring/
 tests/
+benchmarks/
 docs/
 *.parquet
 *.log
