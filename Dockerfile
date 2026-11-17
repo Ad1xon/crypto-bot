@@ -2,6 +2,7 @@
 #
 # Multi-stage build:
 #   builder  - compiles the virtualenv (CPU-only torch keeps the image ~4x smaller than the CUDA wheel)
+#              and the crypto_core C++ extension (g++/cmake only exist in this stage)
 #   runtime  - slim, non-root, read-only-friendly image with only the venv copied in
 #
 # Build:  docker build -t crypto-quant:local .
@@ -16,6 +17,10 @@ ENV PIP_NO_CACHE_DIR=1 \
     VIRTUAL_ENV=/opt/venv
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends g++ make cmake \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN python -m venv "${VIRTUAL_ENV}"
 
 WORKDIR /build
@@ -24,6 +29,15 @@ WORKDIR /build
 COPY requirements.txt .
 RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2.0" \
  && pip install -r requirements.txt
+
+# C++ extension before the Python sources, so editing Python code doesn't trigger a recompile.
+# It's installed straight into the venv's site-packages, which is all the runtime stage copies.
+COPY src/cpp_core ./src/cpp_core
+RUN cmake -S src/cpp_core -B build/cpp_core -DCMAKE_BUILD_TYPE=Release \
+      -DPython_EXECUTABLE="${VIRTUAL_ENV}/bin/python" \
+ && cmake --build build/cpp_core -j"$(nproc)" \
+ && cmake --install build/cpp_core --prefix "$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')" \
+ && python -c "import crypto_core; print('crypto_core', crypto_core.__version__)"
 
 COPY pyproject.toml README.md requirements-dev.txt ./
 COPY src ./src

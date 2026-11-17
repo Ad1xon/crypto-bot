@@ -58,6 +58,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2.0"
           pip install -e ".[dev]"
+      - name: Install C++ toolchain
+        run: |
+          if ! command -v cmake >/dev/null || ! command -v g++ >/dev/null || ! command -v make >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends cmake g++ make
+          fi
+          cmake --version | head -n1
+          g++ --version | head -n1
+      - name: Build crypto_core extension
+        run: |
+          cmake -S src/cpp_core -B build/cpp_core -DCMAKE_BUILD_TYPE=Release -DPython_EXECUTABLE="$(which python)"
+          cmake --build build/cpp_core -j "$(nproc)"
+          cmake --install build/cpp_core --prefix "$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
+          python -c "import crypto_core; print('crypto_core', crypto_core.__version__)"
       - name: Pytest with coverage
         run: pytest --cov --cov-report=xml --cov-report=term --junitxml=junit.xml
       - uses: actions/upload-artifact@v7
@@ -176,7 +190,7 @@ jobs:
             BUILD_DATE=${{ github.event.repository.updated_at }}
       - name: Smoke test image
         run: |
-          docker run --rm --entrypoint python crypto-quant:scan -c "import crypto_quant.main, crypto_quant.observability.metrics"
+          docker run --rm --entrypoint python crypto-quant:scan -c "import crypto_quant.main, crypto_quant.observability.metrics, crypto_core"
           docker run --rm --entrypoint id crypto-quant:scan | grep -q "uid=10001"
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@v0.36.0

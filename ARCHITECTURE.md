@@ -98,6 +98,26 @@ each class focused and testable independently.
 
 ---
 
+### `cpp_core/` (C++ extension `crypto_core`)
+
+**`crypto_core.OrderBook`** — a C++17 L2 order book exposed to Python through
+pybind11. It parses Hyperliquid `l2Book` messages directly (string `px`/`sz`),
+keeps 20 levels per side in fixed-size arrays (no allocations per update), and
+updates multi-level **OFI**, **CVD** (with the daily UTC reset), mid price,
+spread and microprice on every message.
+
+It only maintains state and calculates metrics: no trading decisions and no
+exchange calls, so it belongs to the data-ingestion layer. `HyperliquidStreamer`
+gets it from `data_ingestion/order_book.py`, which falls back to a pure-Python
+book with the same interface when the extension isn't built. See
+[`docs/cpp_core.md`](docs/cpp_core.md) for build steps and benchmark results.
+
+**Decision**: Book parsing runs on every WebSocket message on the asyncio loop.
+Moving it to C++ takes the per-level parsing out of the interpreter and makes a
+20-level OFI cheap enough to compute on every update.
+
+---
+
 ### `quant_models/`
 
 The analytical core. No module here ever calls an exchange API.
@@ -233,7 +253,7 @@ single environment variable flip — no code changes required.
 ### 8. CI/CD Pipeline
 GitHub Actions runs two independent jobs:
 - **`quality`**: `ruff format --check .` then `ruff check .`
-- **`test`**: `pytest` with asyncio mode
+- **`test`**: builds the `crypto_core` C++ extension with CMake, then `pytest` with asyncio mode
 
 `.pre-commit-config.yaml` enforces the same checks locally before commits
 reach the remote.

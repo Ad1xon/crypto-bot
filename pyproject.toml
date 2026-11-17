@@ -22,6 +22,7 @@ optional-dependencies.dev = { file = ["requirements-dev.txt"] }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["crypto_quant*"]
 
 [tool.ruff]
 line-length = 120
