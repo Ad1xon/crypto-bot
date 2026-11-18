@@ -1,9 +1,16 @@
 # Crypto-Quant
 
+[![CI](https://github.com/Ad1xon/crypto-bot/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Ad1xon/crypto-bot/actions/workflows/ci.yml)
+[![Docker image](https://img.shields.io/badge/ghcr.io-ad1xon%2Fcrypto--bot-2496ED?logo=docker&logoColor=white)](https://github.com/Ad1xon/crypto-bot/pkgs/container/crypto-bot)
+
 A modular, asynchronous algorithmic trading system for **Hyperliquid L1
 perpetual futures**. Signal generation uses Smart Money Concept microstructure
 analysis (CVD/OFI absorption) gated by Deribit Gamma Exposure, macro event
 blackout windows, and FinBERT sentiment scoring.
+
+The L2 order book, CVD and OFI are maintained by a small **C++17 extension**
+(`crypto_core`, pybind11) that is 2.4x faster per message than the original
+Python parsing on recorded mainnet data. See [docs/cpp_core.md](./docs/cpp_core.md).
 
 Paper-trading by default. Live mode is a single env-var flip.
 
@@ -15,6 +22,7 @@ Paper-trading by default. Live mode is a single env-var flip.
 flowchart TD
     subgraph Data Ingestion
         HL[Hyperliquid WebSocket] -->|L2Book 20-level, Trades| Streamer(HyperliquidStreamer)
+        Streamer <-->|levels, trades / BBO, CVD, OFI| Core(crypto_core C++ OrderBook)
         Streamer -->|BBO, CVD, OFI| Logger(TickLogger)
         Logger -->|Parquet| Storage[(Local Storage)]
         Deribit[Deribit REST] -->|GEX snapshot| GEXFile[(data/live_gex.json)]
@@ -56,7 +64,7 @@ flowchart TD
     classDef storage fill:#313244,stroke:#a6e3a1,stroke-width:2px,color:#cdd6f4;
     classDef ext fill:#11111b,stroke:#f38ba8,stroke-width:2px,color:#cdd6f4;
 
-    class Streamer,Engine,Detector,Confluence,GEX,Broker,Logger,CLI,Sizer,Macro,Sentiment,SigLog,Prom,Graf,AM main;
+    class Streamer,Core,Engine,Detector,Confluence,GEX,Broker,Logger,CLI,Sizer,Macro,Sentiment,SigLog,Prom,Graf,AM main;
     class Storage,GEXFile storage;
     class HL,HL_Exec,Discord,Deribit ext;
 ```
@@ -71,6 +79,7 @@ decision, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 | Layer          | Technology                                          |
 |----------------|-----------------------------------------------------|
 | Language       | Python 3.11+ (`src/` layout, PEP 621 packaging)     |
+| Hot path       | C++17 + pybind11, built with CMake (order book, CVD, OFI) |
 | Exchange       | Hyperliquid L1 (WebSocket + REST via CCXT)          |
 | Options data   | Deribit REST (GEX snapshots)                        |
 | Async          | `asyncio`                                           |
@@ -90,10 +99,12 @@ decision, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 ```
 src/crypto_quant/      application package (config, data_ingestion, execution,
                        quant_models, research, visualizer, observability, main.py)
+src/cpp_core/          C++17 order book extension (crypto_core) + CMake build
+benchmarks/            l2Book record/replay benchmark (Python vs C++)
 tests/                 pytest suite
 monitoring/            Prometheus, alert rules, Alertmanager, Grafana provisioning
 infra/terraform/       Hetzner Cloud IaC + cloud-init
-docs/                  ADRs and the alert runbook
+docs/                  ADRs, the alert runbook and cpp_core.md
 Dockerfile, docker-compose.yml, Makefile
 ```
 
@@ -101,7 +112,9 @@ Dockerfile, docker-compose.yml, Makefile
 
 ## Quickstart with Docker (recommended)
 
-Requires Docker Engine 24+ / Docker Desktop with Compose v2.
+Requires Docker Engine 24+ / Docker Desktop with Compose v2. The image builds the
+C++ extension in its builder stage, so no local compiler is needed. A prebuilt image
+is available with `docker pull ghcr.io/ad1xon/crypto-bot:latest`.
 
 ```bash
 git clone https://github.com/Ad1xon/crypto-bot.git
@@ -152,6 +165,16 @@ crypto-quant-gex             # Deribit GEX collector, separate terminal
 python -m crypto_quant.research.event_backtester --symbol btc
 ```
 
+The C++ extension is optional for local development: without it the streamer falls
+back to a pure-Python order book (and logs a warning). To build it (CMake + g++/clang,
+on Windows via WSL), see [docs/cpp_core.md](./docs/cpp_core.md#build-and-test). To
+compare both implementations on live data:
+
+```bash
+python benchmarks/bench_orderbook.py record --coins BTC ETH SOL --seconds 120
+python benchmarks/bench_orderbook.py run data/l2_recordings/l2book.jsonl
+```
+
 ---
 
 ## Development
@@ -164,8 +187,8 @@ mypy src
 make help                    # all shortcuts (Git Bash / WSL / Linux)
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, mypy, a Python 3.11/3.12 test matrix with
-coverage, compose/Prometheus/Alertmanager config validation, `terraform validate`,
+CI (`.github/workflows/ci.yml`) runs lint, mypy, builds the C++ extension, a Python
+3.11/3.12 test matrix with coverage, compose/Prometheus/Alertmanager config validation, `terraform validate`,
 Hadolint + Trivy scans, then builds, smoke-tests and pushes the image to
 `ghcr.io/ad1xon/crypto-bot` (tags: `sha-<short>`, `latest`, semver on `v*` tags).
 
